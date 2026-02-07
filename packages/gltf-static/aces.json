@@ -1,0 +1,664 @@
+{
+	"gltf": {
+		"conditions": [
+			{
+				"id": "is-loaded",
+				"scriptName": "IsLoaded",
+				"highlight": false
+			},
+			{
+				"id": "on-loaded",
+				"scriptName": "OnLoaded",
+				"highlight": true,
+				"isTrigger": true
+			},
+			{
+				"id": "on-load-error",
+				"scriptName": "OnLoadError",
+				"highlight": false,
+				"isTrigger": true
+			},
+			{
+				"id": "is-using-workers",
+				"scriptName": "IsUsingWorkers",
+				"highlight": false
+			},
+			{
+				"id": "is-mesh-visible",
+				"scriptName": "IsMeshVisible",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "is-mesh-visible-by-index",
+				"scriptName": "IsMeshVisibleByIndex",
+				"highlight": false,
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"actions": [
+			{
+				"id": "load-model",
+				"scriptName": "LoadModel",
+				"highlight": true,
+				"params": [
+					{
+						"id": "url",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "set-rotation",
+				"scriptName": "SetRotation",
+				"highlight": false,
+				"params": [
+					{
+						"id": "x",
+						"type": "number"
+					},
+					{
+						"id": "y",
+						"type": "number"
+					},
+					{
+						"id": "z",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-scale",
+				"scriptName": "SetScale",
+				"highlight": false,
+				"params": [
+					{
+						"id": "scale",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-scale-xyz",
+				"scriptName": "SetScaleXYZ",
+				"highlight": false,
+				"params": [
+					{
+						"id": "x",
+						"type": "number"
+					},
+					{
+						"id": "y",
+						"type": "number"
+					},
+					{
+						"id": "z",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-worker-enabled",
+				"scriptName": "SetWorkerEnabled",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-mesh-visible",
+				"scriptName": "SetMeshVisible",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					},
+					{
+						"id": "visible",
+						"type": "combo",
+						"items": [
+							"invisible",
+							"visible"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-mesh-visible-by-index",
+				"scriptName": "SetMeshVisibleByIndex",
+				"highlight": false,
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					},
+					{
+						"id": "visible",
+						"type": "combo",
+						"items": [
+							"invisible",
+							"visible"
+						]
+					}
+				]
+			},
+			{
+				"id": "show-mesh",
+				"scriptName": "ShowMesh",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "hide-mesh",
+				"scriptName": "HideMesh",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "show-all-meshes",
+				"scriptName": "ShowAllMeshes",
+				"highlight": false
+			},
+			{
+				"id": "hide-all-meshes",
+				"scriptName": "HideAllMeshes",
+				"highlight": false
+			},
+			{
+				"id": "set-rotation-quaternion",
+				"scriptName": "SetRotationQuaternion",
+				"highlight": false,
+				"params": [
+					{
+						"id": "json",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "set-rotation-quaternion-xyzw",
+				"scriptName": "SetRotationQuaternionXYZW",
+				"highlight": false,
+				"params": [
+					{
+						"id": "x",
+						"type": "number"
+					},
+					{
+						"id": "y",
+						"type": "number"
+					},
+					{
+						"id": "z",
+						"type": "number"
+					},
+					{
+						"id": "w",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"expressions": [
+			{
+				"id": "rotation-x",
+				"expressionName": "RotationX",
+				"returnType": "number"
+			},
+			{
+				"id": "rotation-y",
+				"expressionName": "RotationY",
+				"returnType": "number"
+			},
+			{
+				"id": "rotation-z",
+				"expressionName": "RotationZ",
+				"returnType": "number"
+			},
+			{
+				"id": "scale-x",
+				"expressionName": "ScaleX",
+				"returnType": "number"
+			},
+			{
+				"id": "scale-y",
+				"expressionName": "ScaleY",
+				"returnType": "number"
+			},
+			{
+				"id": "scale-z",
+				"expressionName": "ScaleZ",
+				"returnType": "number"
+			},
+			{
+				"id": "worker-enabled",
+				"expressionName": "WorkerEnabled",
+				"returnType": "number"
+			},
+			{
+				"id": "worker-count",
+				"expressionName": "WorkerCount",
+				"returnType": "number"
+			},
+			{
+				"id": "total-vertices",
+				"expressionName": "TotalVertices",
+				"returnType": "number"
+			},
+			{
+				"id": "mesh-count",
+				"expressionName": "MeshCount",
+				"returnType": "number"
+			},
+			{
+				"id": "mesh-names",
+				"expressionName": "MeshNames",
+				"returnType": "string"
+			},
+			{
+				"id": "mesh-name-at",
+				"expressionName": "MeshNameAt",
+				"returnType": "string",
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "rotation-quaternion",
+				"expressionName": "RotationQuaternion",
+				"returnType": "string"
+			},
+			{
+				"id": "quat-x",
+				"expressionName": "QuatX",
+				"returnType": "number"
+			},
+			{
+				"id": "quat-y",
+				"expressionName": "QuatY",
+				"returnType": "number"
+			},
+			{
+				"id": "quat-z",
+				"expressionName": "QuatZ",
+				"returnType": "number"
+			},
+			{
+				"id": "quat-w",
+				"expressionName": "QuatW",
+				"returnType": "number"
+			}
+		]
+	},
+	"animation": {
+		"conditions": [
+			{
+				"id": "is-animation-playing",
+				"scriptName": "IsAnimationPlaying",
+				"highlight": false
+			},
+			{
+				"id": "is-animation-paused",
+				"scriptName": "IsAnimationPaused",
+				"highlight": false
+			},
+			{
+				"id": "has-animation",
+				"scriptName": "HasAnimation",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "on-animation-finished",
+				"scriptName": "OnAnimationFinished",
+				"highlight": true,
+				"isTrigger": true
+			}
+		],
+		"actions": [
+			{
+				"id": "play-animation",
+				"scriptName": "PlayAnimation",
+				"highlight": true,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "play-animation-by-index",
+				"scriptName": "PlayAnimationByIndex",
+				"highlight": false,
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "stop-animation",
+				"scriptName": "StopAnimation",
+				"highlight": false
+			},
+			{
+				"id": "pause-animation",
+				"scriptName": "PauseAnimation",
+				"highlight": false
+			},
+			{
+				"id": "resume-animation",
+				"scriptName": "ResumeAnimation",
+				"highlight": false
+			},
+			{
+				"id": "set-animation-time",
+				"scriptName": "SetAnimationTime",
+				"highlight": false,
+				"params": [
+					{
+						"id": "time",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-animation-speed",
+				"scriptName": "SetAnimationSpeed",
+				"highlight": false,
+				"params": [
+					{
+						"id": "speed",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-animation-loop",
+				"scriptName": "SetAnimationLoop",
+				"highlight": false,
+				"params": [
+					{
+						"id": "loop",
+						"type": "combo",
+						"items": [
+							"no",
+							"yes"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-animation-frame-skip",
+				"scriptName": "SetAnimationFrameSkip",
+				"highlight": false,
+				"params": [
+					{
+						"id": "skip",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-frame-skip-lighting",
+				"scriptName": "SetFrameSkipLighting",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-distance-lod-enabled",
+				"scriptName": "SetDistanceLodEnabled",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-distance-lod-thresholds",
+				"scriptName": "SetDistanceLodThresholds",
+				"highlight": false,
+				"params": [
+					{
+						"id": "fullrateradius",
+						"type": "number"
+					},
+					{
+						"id": "maxskipdistance",
+						"type": "number"
+					},
+					{
+						"id": "maxskip",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"expressions": [
+			{
+				"id": "animation-time",
+				"expressionName": "AnimationTime",
+				"returnType": "number"
+			},
+			{
+				"id": "animation-duration",
+				"expressionName": "AnimationDuration",
+				"returnType": "number"
+			},
+			{
+				"id": "animation-name",
+				"expressionName": "AnimationName",
+				"returnType": "string"
+			},
+			{
+				"id": "animation-count",
+				"expressionName": "AnimationCount",
+				"returnType": "number"
+			},
+			{
+				"id": "animation-name-at",
+				"expressionName": "AnimationNameAt",
+				"returnType": "string",
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "animation-speed",
+				"expressionName": "AnimationSpeed",
+				"returnType": "number"
+			},
+			{
+				"id": "animation-progress",
+				"expressionName": "AnimationProgress",
+				"returnType": "number"
+			},
+			{
+				"id": "animation-names",
+				"expressionName": "AnimationNames",
+				"returnType": "string"
+			},
+			{
+				"id": "animation-frame-skip",
+				"expressionName": "AnimationFrameSkip",
+				"returnType": "number"
+			},
+			{
+				"id": "frame-skip-lighting",
+				"expressionName": "FrameSkipLighting",
+				"returnType": "number"
+			},
+			{
+				"id": "distance-lod-enabled",
+				"expressionName": "DistanceLodEnabled",
+				"returnType": "number"
+			},
+			{
+				"id": "effective-frame-skip",
+				"expressionName": "EffectiveFrameSkip",
+				"returnType": "number"
+			}
+		]
+	},
+	"bones": {
+		"conditions": [
+			{
+				"id": "has-bone",
+				"scriptName": "HasBone",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			}
+		],
+		"actions": [],
+		"expressions": [
+			{
+				"id": "bone-x",
+				"expressionName": "BoneX",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-y",
+				"expressionName": "BoneY",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-z",
+				"expressionName": "BoneZ",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-angle",
+				"expressionName": "BoneAngle",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-rotation-x",
+				"expressionName": "BoneRotationX",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-rotation-y",
+				"expressionName": "BoneRotationY",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-rotation-z",
+				"expressionName": "BoneRotationZ",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					}
+				]
+			},
+			{
+				"id": "bone-names",
+				"expressionName": "BoneNames",
+				"returnType": "string"
+			},
+			{
+				"id": "bone-count",
+				"expressionName": "BoneCount",
+				"returnType": "number"
+			}
+		]
+	}
+}

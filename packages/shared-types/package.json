@@ -1,0 +1,15 @@
+{
+  "name": "@gltf-plugins/shared-types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript interfaces for glTF plugins",
+  "main": "src/editor-lighting.ts",
+  "types": "src/editor-lighting.ts",
+  "scripts": {
+    "build": "echo 'Types only - no build needed'"
+  },
+  "keywords": [
+    "gltf",
+    "types"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# TypeScript compiled outputs (built from *.ts)
+# All JS files are generated from TypeScript - do not commit them
+# Exceptions: build scripts and examples
+*.js
+!build.js
+!package.js
+!examples/**/*.js
+!tests/**/*.js
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+*.temp
+
+# Test models (can be re-downloaded)
+models/
+
+# Distribution builds
+dist/

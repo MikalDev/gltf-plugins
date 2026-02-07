@@ -1,0 +1,13 @@
+{
+  "name": "gltf-plugins",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "build:static": "npm run build -w packages/gltf-static",
+    "build:spotlight": "npm run build -w packages/gltf-spotlight",
+    "build:environment": "npm run build -w packages/gltf-environment"
+  }
+}

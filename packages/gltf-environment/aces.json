@@ -1,0 +1,164 @@
+{
+	"environment": {
+		"conditions": [
+			{
+				"id": "is-hemisphere-enabled",
+				"scriptName": "IsHemisphereEnabled",
+				"highlight": false
+			}
+		],
+		"actions": [
+			{
+				"id": "set-ambient-color",
+				"scriptName": "SetAmbientColor",
+				"highlight": false,
+				"params": [
+					{
+						"id": "r",
+						"type": "number"
+					},
+					{
+						"id": "g",
+						"type": "number"
+					},
+					{
+						"id": "b",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-ambient-intensity",
+				"scriptName": "SetAmbientIntensity",
+				"highlight": false,
+				"params": [
+					{
+						"id": "intensity",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-hemisphere-enabled",
+				"scriptName": "SetHemisphereEnabled",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-sky-color",
+				"scriptName": "SetSkyColor",
+				"highlight": false,
+				"params": [
+					{
+						"id": "r",
+						"type": "number"
+					},
+					{
+						"id": "g",
+						"type": "number"
+					},
+					{
+						"id": "b",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-ground-color",
+				"scriptName": "SetGroundColor",
+				"highlight": false,
+				"params": [
+					{
+						"id": "r",
+						"type": "number"
+					},
+					{
+						"id": "g",
+						"type": "number"
+					},
+					{
+						"id": "b",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-hemisphere-intensity",
+				"scriptName": "SetHemisphereIntensity",
+				"highlight": false,
+				"params": [
+					{
+						"id": "intensity",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"expressions": [
+			{
+				"id": "ambient-intensity",
+				"expressionName": "AmbientIntensity",
+				"returnType": "number"
+			},
+			{
+				"id": "ambient-color-r",
+				"expressionName": "AmbientColorR",
+				"returnType": "number"
+			},
+			{
+				"id": "ambient-color-g",
+				"expressionName": "AmbientColorG",
+				"returnType": "number"
+			},
+			{
+				"id": "ambient-color-b",
+				"expressionName": "AmbientColorB",
+				"returnType": "number"
+			},
+			{
+				"id": "hemisphere-intensity",
+				"expressionName": "HemisphereIntensity",
+				"returnType": "number"
+			},
+			{
+				"id": "sky-color-r",
+				"expressionName": "SkyColorR",
+				"returnType": "number"
+			},
+			{
+				"id": "sky-color-g",
+				"expressionName": "SkyColorG",
+				"returnType": "number"
+			},
+			{
+				"id": "sky-color-b",
+				"expressionName": "SkyColorB",
+				"returnType": "number"
+			},
+			{
+				"id": "ground-color-r",
+				"expressionName": "GroundColorR",
+				"returnType": "number"
+			},
+			{
+				"id": "ground-color-g",
+				"expressionName": "GroundColorG",
+				"returnType": "number"
+			},
+			{
+				"id": "ground-color-b",
+				"expressionName": "GroundColorB",
+				"returnType": "number"
+			}
+		]
+	}
+}

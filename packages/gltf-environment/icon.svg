@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Sun/ambient light -->
+  <circle cx="32" cy="28" r="12" fill="#FFD700" stroke="#FF8C00" stroke-width="2"/>
+  <!-- Sun rays -->
+  <g stroke="#FFD700" stroke-width="2">
+    <line x1="32" y1="8" x2="32" y2="14"/>
+    <line x1="32" y1="42" x2="32" y2="48"/>
+    <line x1="12" y1="28" x2="18" y2="28"/>
+    <line x1="46" y1="28" x2="52" y2="28"/>
+    <line x1="17" y1="13" x2="21" y2="17"/>
+    <line x1="43" y1="39" x2="47" y2="43"/>
+    <line x1="47" y1="13" x2="43" y2="17"/>
+    <line x1="21" y1="39" x2="17" y2="43"/>
+  </g>
+  <!-- Ground/horizon line -->
+  <rect x="4" y="52" width="56" height="8" fill="#8B4513" rx="2"/>
+  <!-- Sky gradient hint -->
+  <rect x="4" y="52" width="56" height="4" fill="#87CEEB" opacity="0.5"/>
+</svg>

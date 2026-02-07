@@ -1,0 +1,168 @@
+{
+	"languageTag": "en-US",
+	"fileDescription": "Strings for glTF Environment plugin",
+	"text": {
+		"plugins": {
+			"gltfenvironment": {
+				"name": "glTF Environment",
+				"description": "Ambient and hemisphere lighting for glTF 3D models.",
+				"help-url": "https://github.com/MikalDev/gltf-plugins",
+				"category": "3D",
+				"properties": {
+					"ambient-color": {
+						"name": "Ambient color",
+						"desc": "The RGB color of ambient lighting."
+					},
+					"ambient-intensity": {
+						"name": "Ambient intensity",
+						"desc": "Ambient light intensity multiplier."
+					},
+					"hemisphere-enabled": {
+						"name": "Hemisphere enabled",
+						"desc": "Whether hemisphere lighting is active."
+					},
+					"sky-color": {
+						"name": "Sky color",
+						"desc": "Color from above (sky direction)."
+					},
+					"ground-color": {
+						"name": "Ground color",
+						"desc": "Color from below (ground direction)."
+					},
+					"hemisphere-intensity": {
+						"name": "Hemisphere intensity",
+						"desc": "Hemisphere lighting intensity multiplier."
+					}
+				},
+				"aceCategories": {
+					"environment": "Environment"
+				},
+				"conditionsCategories": {
+					"environment": "Environment"
+				},
+				"actionsCategories": {
+					"environment": "Environment"
+				},
+				"expressionsCategories": {
+					"environment": "Environment"
+				},
+				"conditions": {
+					"is-hemisphere-enabled": {
+						"list-name": "Is hemisphere enabled",
+						"display-text": "{my} hemisphere is enabled",
+						"description": "True if hemisphere lighting is enabled."
+					}
+				},
+				"actions": {
+					"set-ambient-color": {
+						"list-name": "Set ambient color",
+						"display-text": "Set {my} ambient color to RGB([b]{0}[/b], [b]{1}[/b], [b]{2}[/b])",
+						"description": "Set the ambient light color.",
+						"params": {
+							"r": { "name": "Red", "desc": "Red component (0-255)." },
+							"g": { "name": "Green", "desc": "Green component (0-255)." },
+							"b": { "name": "Blue", "desc": "Blue component (0-255)." }
+						}
+					},
+					"set-ambient-intensity": {
+						"list-name": "Set ambient intensity",
+						"display-text": "Set {my} ambient intensity to [b]{0}[/b]",
+						"description": "Set the ambient light intensity.",
+						"params": {
+							"intensity": { "name": "Intensity", "desc": "Ambient intensity multiplier." }
+						}
+					},
+					"set-hemisphere-enabled": {
+						"list-name": "Set hemisphere enabled",
+						"display-text": "Set {my} hemisphere [b]{0}[/b]",
+						"description": "Enable or disable hemisphere lighting.",
+						"params": {
+							"enabled": {
+								"name": "State",
+								"desc": "Whether to enable or disable hemisphere lighting.",
+								"items": {
+									"disabled": "Disabled",
+									"enabled": "Enabled"
+								}
+							}
+						}
+					},
+					"set-sky-color": {
+						"list-name": "Set sky color",
+						"display-text": "Set {my} sky color to RGB([b]{0}[/b], [b]{1}[/b], [b]{2}[/b])",
+						"description": "Set the sky (up) color for hemisphere lighting.",
+						"params": {
+							"r": { "name": "Red", "desc": "Red component (0-255)." },
+							"g": { "name": "Green", "desc": "Green component (0-255)." },
+							"b": { "name": "Blue", "desc": "Blue component (0-255)." }
+						}
+					},
+					"set-ground-color": {
+						"list-name": "Set ground color",
+						"display-text": "Set {my} ground color to RGB([b]{0}[/b], [b]{1}[/b], [b]{2}[/b])",
+						"description": "Set the ground (down) color for hemisphere lighting.",
+						"params": {
+							"r": { "name": "Red", "desc": "Red component (0-255)." },
+							"g": { "name": "Green", "desc": "Green component (0-255)." },
+							"b": { "name": "Blue", "desc": "Blue component (0-255)." }
+						}
+					},
+					"set-hemisphere-intensity": {
+						"list-name": "Set hemisphere intensity",
+						"display-text": "Set {my} hemisphere intensity to [b]{0}[/b]",
+						"description": "Set the hemisphere lighting intensity.",
+						"params": {
+							"intensity": { "name": "Intensity", "desc": "Hemisphere intensity multiplier." }
+						}
+					}
+				},
+				"expressions": {
+					"ambient-intensity": {
+						"description": "Get the ambient light intensity.",
+						"translated-name": "AmbientIntensity"
+					},
+					"ambient-color-r": {
+						"description": "Get the ambient red color component (0-255).",
+						"translated-name": "AmbientColorR"
+					},
+					"ambient-color-g": {
+						"description": "Get the ambient green color component (0-255).",
+						"translated-name": "AmbientColorG"
+					},
+					"ambient-color-b": {
+						"description": "Get the ambient blue color component (0-255).",
+						"translated-name": "AmbientColorB"
+					},
+					"hemisphere-intensity": {
+						"description": "Get the hemisphere lighting intensity.",
+						"translated-name": "HemisphereIntensity"
+					},
+					"sky-color-r": {
+						"description": "Get the sky red color component (0-255).",
+						"translated-name": "SkyColorR"
+					},
+					"sky-color-g": {
+						"description": "Get the sky green color component (0-255).",
+						"translated-name": "SkyColorG"
+					},
+					"sky-color-b": {
+						"description": "Get the sky blue color component (0-255).",
+						"translated-name": "SkyColorB"
+					},
+					"ground-color-r": {
+						"description": "Get the ground red color component (0-255).",
+						"translated-name": "GroundColorR"
+					},
+					"ground-color-g": {
+						"description": "Get the ground green color component (0-255).",
+						"translated-name": "GroundColorG"
+					},
+					"ground-color-b": {
+						"description": "Get the ground blue color component (0-255).",
+						"translated-name": "GroundColorB"
+					}
+				}
+			}
+		}
+	}
+}

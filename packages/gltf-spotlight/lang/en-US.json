@@ -1,0 +1,173 @@
+{
+	"languageTag": "en-US",
+	"fileDescription": "Strings for glTF Spotlight plugin",
+	"text": {
+		"plugins": {
+			"gltfspotlight": {
+				"name": "glTF Spotlight",
+				"description": "Spotlight for glTF 3D models.",
+				"help-url": "https://github.com/MikalDev/gltf-plugins",
+				"category": "3D",
+				"properties": {
+					"enabled": {
+						"name": "Enabled",
+						"desc": "Whether this spotlight is active."
+					},
+					"color": {
+						"name": "Color",
+						"desc": "The RGB color of the spotlight."
+					},
+					"intensity": {
+						"name": "Intensity",
+						"desc": "Light intensity multiplier."
+					},
+					"inner-angle": {
+						"name": "Inner angle",
+						"desc": "Full intensity cone angle in degrees."
+					},
+					"outer-angle": {
+						"name": "Outer angle",
+						"desc": "Falloff cone angle in degrees."
+					},
+					"range": {
+						"name": "Range",
+						"desc": "Distance falloff range (0 = infinite)."
+					}
+				},
+				"aceCategories": {
+					"spotlight": "Spotlight"
+				},
+				"conditionsCategories": {
+					"spotlight": "Spotlight"
+				},
+				"actionsCategories": {
+					"spotlight": "Spotlight"
+				},
+				"expressionsCategories": {
+					"spotlight": "Spotlight"
+				},
+				"conditions": {
+					"is-enabled": {
+						"list-name": "Is enabled",
+						"display-text": "{my} is enabled",
+						"description": "True if this spotlight is enabled."
+					}
+				},
+				"actions": {
+					"set-enabled": {
+						"list-name": "Set enabled",
+						"display-text": "Set {my} [b]{0}[/b]",
+						"description": "Enable or disable this spotlight.",
+						"params": {
+							"enabled": {
+								"name": "State",
+								"desc": "Whether to enable or disable the spotlight.",
+								"items": {
+									"disabled": "Disabled",
+									"enabled": "Enabled"
+								}
+							}
+						}
+					},
+					"set-color": {
+						"list-name": "Set color",
+						"display-text": "Set {my} color to RGB([b]{0}[/b], [b]{1}[/b], [b]{2}[/b])",
+						"description": "Set the spotlight color.",
+						"params": {
+							"r": {
+								"name": "Red",
+								"desc": "Red component (0-255)."
+							},
+							"g": {
+								"name": "Green",
+								"desc": "Green component (0-255)."
+							},
+							"b": {
+								"name": "Blue",
+								"desc": "Blue component (0-255)."
+							}
+						}
+					},
+					"set-intensity": {
+						"list-name": "Set intensity",
+						"display-text": "Set {my} intensity to [b]{0}[/b]",
+						"description": "Set the light intensity multiplier.",
+						"params": {
+							"intensity": {
+								"name": "Intensity",
+								"desc": "Light intensity multiplier."
+							}
+						}
+					},
+					"set-inner-angle": {
+						"list-name": "Set inner angle",
+						"display-text": "Set {my} inner angle to [b]{0}[/b]°",
+						"description": "Set the full intensity cone angle.",
+						"params": {
+							"angle": {
+								"name": "Angle",
+								"desc": "Inner cone angle in degrees."
+							}
+						}
+					},
+					"set-outer-angle": {
+						"list-name": "Set outer angle",
+						"display-text": "Set {my} outer angle to [b]{0}[/b]°",
+						"description": "Set the falloff cone angle.",
+						"params": {
+							"angle": {
+								"name": "Angle",
+								"desc": "Outer cone angle in degrees."
+							}
+						}
+					},
+					"set-range": {
+						"list-name": "Set range",
+						"display-text": "Set {my} range to [b]{0}[/b]",
+						"description": "Set the distance falloff range (0 = infinite).",
+						"params": {
+							"range": {
+								"name": "Range",
+								"desc": "Distance falloff range."
+							}
+						}
+					}
+				},
+				"expressions": {
+					"light-id": {
+						"description": "Get the internal light ID for scripting with globalThis.GltfBundle.Lighting.",
+						"translated-name": "LightID"
+					},
+					"intensity": {
+						"description": "Get the light intensity.",
+						"translated-name": "Intensity"
+					},
+					"inner-angle": {
+						"description": "Get the inner cone angle in degrees.",
+						"translated-name": "InnerAngle"
+					},
+					"outer-angle": {
+						"description": "Get the outer cone angle in degrees.",
+						"translated-name": "OuterAngle"
+					},
+					"range": {
+						"description": "Get the distance falloff range.",
+						"translated-name": "Range"
+					},
+					"color-r": {
+						"description": "Get the red color component (0-255).",
+						"translated-name": "ColorR"
+					},
+					"color-g": {
+						"description": "Get the green color component (0-255).",
+						"translated-name": "ColorG"
+					},
+					"color-b": {
+						"description": "Get the blue color component (0-255).",
+						"translated-name": "ColorB"
+					}
+				}
+			}
+		}
+	}
+}

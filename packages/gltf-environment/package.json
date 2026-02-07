@@ -1,0 +1,23 @@
+{
+  "name": "@gltf-plugins/gltf-environment",
+  "version": "1.0.0",
+  "description": "Construct 3 plugin for glTF environment/ambient editor lighting",
+  "main": "c3runtime/plugin.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "node package.js"
+  },
+  "keywords": [
+    "construct3",
+    "gltf",
+    "lighting",
+    "environment"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@gltf-plugins/shared-types": "*"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}

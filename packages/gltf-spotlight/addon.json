@@ -1,0 +1,33 @@
+{
+	"is-c3-addon": true,
+	"sdk-version": 2,
+	"min-construct-version": "r401",
+	"type": "plugin",
+	"name": "glTF Spotlight",
+	"id": "GltfSpotlight",
+	"version": "1.0.0.0",
+	"author": "Mikal",
+	"website": "https://github.com/MikalDev/gltf-plugins",
+	"documentation": "https://github.com/MikalDev/gltf-plugins",
+	"description": "Spotlight for glTF 3D models.",
+	"editor-scripts": [
+		"plugin.js",
+		"type.js",
+		"instance.js"
+	],
+	"file-list": [
+		"c3runtime/plugin.js",
+		"c3runtime/type.js",
+		"c3runtime/instance.js",
+		"c3runtime/actions.js",
+		"c3runtime/conditions.js",
+		"c3runtime/expressions.js",
+		"lang/en-US.json",
+		"aces.json",
+		"addon.json",
+		"icon.svg",
+		"plugin.js",
+		"type.js",
+		"instance.js"
+	]
+}
