@@ -40,9 +40,10 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 
 	Release(): void
 	{
-		// Remove this spotlight from the global array
+		// Remove this spotlight from the global array and mark lighting as dirty
 		const arr = globalThis.gltfEditorSpotlights ?? [];
 		globalThis.gltfEditorSpotlights = arr.filter(s => s.id !== this._uniqueId);
+		globalThis.gltfEditorLightingVersion = (globalThis.gltfEditorLightingVersion || 0) + 1;
 	}
 
 	OnPropertyChanged(id: string, value: EditorPropertyValueType): void
@@ -143,6 +144,9 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		}
 
 		globalThis.gltfEditorSpotlights = arr;
+
+		// Mark lighting as dirty so gltf-static knows to update
+		globalThis.gltfEditorLightingVersion = (globalThis.gltfEditorLightingVersion || 0) + 1;
 	}
 };
 

@@ -29,8 +29,9 @@ PLUGIN_CLASS.Instance = class GltfEnvironmentInstance extends SDK.IWorldInstance
 
 	Release(): void
 	{
-		// Clear the global environment
+		// Clear the global environment and mark lighting as dirty
 		globalThis.gltfEditorEnvironment = undefined;
+		globalThis.gltfEditorLightingVersion = (globalThis.gltfEditorLightingVersion || 0) + 1;
 	}
 
 	OnPropertyChanged(id: string, value: EditorPropertyValueType): void
@@ -98,6 +99,9 @@ PLUGIN_CLASS.Instance = class GltfEnvironmentInstance extends SDK.IWorldInstance
 			groundColor: [groundColor.getR(), groundColor.getG(), groundColor.getB()],
 			hemisphereIntensity: this._inst.GetPropertyValue(PROP_HEMISPHERE_INTENSITY) as number
 		};
+
+		// Mark lighting as dirty so gltf-static knows to update
+		globalThis.gltfEditorLightingVersion = (globalThis.gltfEditorLightingVersion || 0) + 1;
 	}
 };
 

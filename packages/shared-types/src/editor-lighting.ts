@@ -50,6 +50,8 @@ export interface EditorEnvironment {
 declare global {
     var gltfEditorSpotlights: EditorSpotlight[];
     var gltfEditorEnvironment: EditorEnvironment | undefined;
+    /** Incremented whenever lighting state changes (used for dirty detection) */
+    var gltfEditorLightingVersion: number;
 }
 
 export {};
