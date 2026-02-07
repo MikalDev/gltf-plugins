@@ -31,7 +31,19 @@
 					},
 					"range": {
 						"name": "Range",
-						"desc": "Distance falloff range (0 = infinite)."
+						"desc": "Maximum distance the light reaches. Use a value appropriate for your scene scale."
+					},
+					"dir-x": {
+						"name": "Direction X",
+						"desc": "X component of the spotlight direction vector."
+					},
+					"dir-y": {
+						"name": "Direction Y",
+						"desc": "Y component of the spotlight direction vector."
+					},
+					"dir-z": {
+						"name": "Direction Z",
+						"desc": "Z component of the spotlight direction vector."
 					}
 				},
 				"aceCategories": {
@@ -124,11 +136,30 @@
 					"set-range": {
 						"list-name": "Set range",
 						"display-text": "Set {my} range to [b]{0}[/b]",
-						"description": "Set the distance falloff range (0 = infinite).",
+						"description": "Set the maximum distance the light reaches.",
 						"params": {
 							"range": {
 								"name": "Range",
-								"desc": "Distance falloff range."
+								"desc": "Maximum light distance. Use a value appropriate for your scene scale."
+							}
+						}
+					},
+					"set-direction": {
+						"list-name": "Set direction",
+						"display-text": "Set {my} direction to ([b]{0}[/b], [b]{1}[/b], [b]{2}[/b])",
+						"description": "Set the spotlight direction vector.",
+						"params": {
+							"x": {
+								"name": "X",
+								"desc": "X component of direction."
+							},
+							"y": {
+								"name": "Y",
+								"desc": "Y component of direction."
+							},
+							"z": {
+								"name": "Z",
+								"desc": "Z component of direction."
 							}
 						}
 					}
@@ -165,6 +196,18 @@
 					"color-b": {
 						"description": "Get the blue color component (0-255).",
 						"translated-name": "ColorB"
+					},
+					"direction-x": {
+						"description": "Get the X component of the direction vector.",
+						"translated-name": "DirectionX"
+					},
+					"direction-y": {
+						"description": "Get the Y component of the direction vector.",
+						"translated-name": "DirectionY"
+					},
+					"direction-z": {
+						"description": "Get the Z component of the direction vector.",
+						"translated-name": "DirectionZ"
 					}
 				}
 			}

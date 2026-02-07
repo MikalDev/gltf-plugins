@@ -12,10 +12,8 @@
 	},
 	"include": [
 		"*.ts",
+		"c3runtime/*.ts",
 		"ts-defs/editor/**/*.d.ts",
 		"ts-defs/runtime/**/*.d.ts"
-	],
-	"exclude": [
-		"c3runtime"
 	]
 }

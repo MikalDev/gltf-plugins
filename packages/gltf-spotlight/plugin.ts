@@ -31,7 +31,10 @@ const PLUGIN_CLASS = SDK.Plugins.GltfSpotlight = class GltfSpotlightPlugin exten
 			new SDK.PluginProperty("float", "intensity", 1.0),
 			new SDK.PluginProperty("float", "inner-angle", 15),
 			new SDK.PluginProperty("float", "outer-angle", 30),
-			new SDK.PluginProperty("float", "range", 0)
+			new SDK.PluginProperty("float", "range", 10000),
+			new SDK.PluginProperty("float", "dir-x", 1),
+			new SDK.PluginProperty("float", "dir-y", 0),
+			new SDK.PluginProperty("float", "dir-z", 0)
 		]);
 
 		SDK.Lang.PopContext();

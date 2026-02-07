@@ -9,6 +9,9 @@ const PROP_INTENSITY = "intensity";
 const PROP_INNER_ANGLE = "inner-angle";
 const PROP_OUTER_ANGLE = "outer-angle";
 const PROP_RANGE = "range";
+const PROP_DIR_X = "dir-x";
+const PROP_DIR_Y = "dir-y";
+const PROP_DIR_Z = "dir-z";
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -49,14 +52,18 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 
 	Draw(iRenderer: SDK.Gfx.IWebGLRenderer, iDrawParams: SDK.Gfx.IDrawParams): void
 	{
+		// Update spotlight data each draw in case position/elevation changed
+		this._updateGlobalSpotlight();
+
 		const x = this._inst.GetX();
 		const y = this._inst.GetY();
-		const angle = this._inst.GetAngle();
 
 		// Get properties
 		const enabled = this._inst.GetPropertyValue(PROP_ENABLED) as boolean;
 		const color = this._inst.GetPropertyValue(PROP_COLOR) as SDK.Color;
 		const outerAngle = this._inst.GetPropertyValue(PROP_OUTER_ANGLE) as number;
+		const dirX = this._inst.GetPropertyValue(PROP_DIR_X) as number;
+		const dirY = this._inst.GetPropertyValue(PROP_DIR_Y) as number;
 
 		// Get color components (0-1 range)
 		const r = color.getR();
@@ -79,18 +86,20 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		// Draw the light source as a square
 		iRenderer.Rect2(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
 
-		// Draw the cone direction
+		// Draw the cone direction using direction properties (X/Y plane)
 		const halfAngle = outerAngle * DEG_TO_RAD / 2;
-		const cosA = Math.cos(angle);
-		const sinA = Math.sin(angle);
+		// Normalize direction for drawing
+		const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
+		const normX = dirLen > 0 ? dirX / dirLen : 1;
+		const normY = dirLen > 0 ? dirY / dirLen : 0;
 
 		// Center point of cone end
-		const endX = x + cosA * coneLength;
-		const endY = y + sinA * coneLength;
+		const endX = x + normX * coneLength;
+		const endY = y + normY * coneLength;
 
 		// Perpendicular offset for cone edges
-		const perpX = -sinA * Math.tan(halfAngle) * coneLength;
-		const perpY = cosA * Math.tan(halfAngle) * coneLength;
+		const perpX = -normY * Math.tan(halfAngle) * coneLength;
+		const perpY = normX * Math.tan(halfAngle) * coneLength;
 
 		// Draw cone edges using smooth line mode
 		iRenderer.SetSmoothLineFillMode();
@@ -116,12 +125,15 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 
 		if (enabled) {
 			const color = this._inst.GetPropertyValue(PROP_COLOR) as SDK.Color;
+			const dirX = this._inst.GetPropertyValue(PROP_DIR_X) as number;
+			const dirY = this._inst.GetPropertyValue(PROP_DIR_Y) as number;
+			const dirZ = this._inst.GetPropertyValue(PROP_DIR_Z) as number;
 
 			arr.push({
 				id: this._uniqueId,
 				enabled: true,
 				position: [this._inst.GetX(), this._inst.GetY(), this._inst.GetZElevation()],
-				direction: this._getDirectionFromAngle(this._inst.GetAngle()),
+				direction: [dirX, dirY, dirZ],
 				color: [color.getR(), color.getG(), color.getB()],
 				intensity: this._inst.GetPropertyValue(PROP_INTENSITY) as number,
 				innerAngle: this._inst.GetPropertyValue(PROP_INNER_ANGLE) as number,
@@ -131,14 +143,6 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		}
 
 		globalThis.gltfEditorSpotlights = arr;
-	}
-
-	private _getDirectionFromAngle(angle: number): [number, number, number]
-	{
-		// Convert C3 angle to direction vector
-		// C3 angles: 0 = right, 90 = down (clockwise)
-		// We use X/Y plane direction, with Z pointing forward into scene
-		return [Math.cos(angle), Math.sin(angle), 0];
 	}
 };
 

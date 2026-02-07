@@ -85,6 +85,25 @@
 						"type": "number"
 					}
 				]
+			},
+			{
+				"id": "set-direction",
+				"scriptName": "SetDirection",
+				"highlight": false,
+				"params": [
+					{
+						"id": "x",
+						"type": "number"
+					},
+					{
+						"id": "y",
+						"type": "number"
+					},
+					{
+						"id": "z",
+						"type": "number"
+					}
+				]
 			}
 		],
 		"expressions": [
@@ -126,6 +145,21 @@
 			{
 				"id": "color-b",
 				"expressionName": "ColorB",
+				"returnType": "number"
+			},
+			{
+				"id": "direction-x",
+				"expressionName": "DirectionX",
+				"returnType": "number"
+			},
+			{
+				"id": "direction-y",
+				"expressionName": "DirectionY",
+				"returnType": "number"
+			},
+			{
+				"id": "direction-z",
+				"expressionName": "DirectionZ",
 				"returnType": "number"
 			}
 		]

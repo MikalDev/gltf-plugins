@@ -95,7 +95,11 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends C3.S
 			this._updateGlobalEnvironment();
 		}
 	}
-needsUpdate = true;
+
+	_SetAmbientColor(r, g, b)
+	{
+		this._ambientColor = [r / 255, g / 255, b / 255];
+		this._needsUpdate = true;
 		this._updateGlobalEnvironment();
 	}
 
