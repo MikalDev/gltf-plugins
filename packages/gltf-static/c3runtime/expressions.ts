@@ -199,5 +199,47 @@ C3.Plugins.GltfStatic.Exps =
 	QuatW(this: SDKInstanceClass): number
 	{
 		return this._getQuatW();
+	},
+
+	// Physics / Bounding Box expressions
+	BBoxWidth(this: SDKInstanceClass): number
+	{
+		const size = this._getWorldBoundingBoxSize();
+		return size ? size[0] : 0;
+	},
+
+	BBoxHeight(this: SDKInstanceClass): number
+	{
+		const size = this._getWorldBoundingBoxSize();
+		return size ? size[1] : 0;
+	},
+
+	BBoxDepth(this: SDKInstanceClass): number
+	{
+		const size = this._getWorldBoundingBoxSize();
+		return size ? size[2] : 0;
+	},
+
+	BBoxHalfWidth(this: SDKInstanceClass): number
+	{
+		const extents = this._getHalfExtents();
+		return extents ? extents[0] : 0;
+	},
+
+	BBoxHalfHeight(this: SDKInstanceClass): number
+	{
+		const extents = this._getHalfExtents();
+		return extents ? extents[1] : 0;
+	},
+
+	BBoxHalfDepth(this: SDKInstanceClass): number
+	{
+		const extents = this._getHalfExtents();
+		return extents ? extents[2] : 0;
+	},
+
+	BBoxScale(this: SDKInstanceClass): number
+	{
+		return this._getBBoxScale();
 	}
 };

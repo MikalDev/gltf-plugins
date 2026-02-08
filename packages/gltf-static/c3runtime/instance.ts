@@ -112,6 +112,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_lodMaxSkipDistance: number = 2000;    // Maximum frame skip at this distance and beyond
 	_lodMaxFrameSkip: number = 5;          // Maximum frame skip when at/beyond max distance
 
+	// Physics integration
+	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
+
 	// Static counter for generating stagger offsets
 	static _instanceCounter: number = 0;
 
@@ -1547,6 +1550,118 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		const ground = Lighting.getHemisphereLight().groundColor;
 		return [ground[0], ground[1], ground[2]];
+	}
+
+	// ========================================================================
+	// Physics Integration (direct property access)
+	// ========================================================================
+
+	/**
+	 * Quaternion setter for physics integration.
+	 * Allows physics behavior to set rotation directly: inst.quaternion = {x, y, z, w}
+	 */
+	set quaternion(q: { x: number; y: number; z: number; w: number })
+	{
+		this._setRotationQuaternion(q.x, q.y, q.z, q.w);
+	}
+
+	/**
+	 * Quaternion getter for physics integration.
+	 */
+	get quaternion(): { x: number; y: number; z: number; w: number }
+	{
+		return {
+			x: this._rotationQuat[0],
+			y: this._rotationQuat[1],
+			z: this._rotationQuat[2],
+			w: this._rotationQuat[3]
+		};
+	}
+
+	/**
+	 * Set the bounding box scale factor for physics shape sizing.
+	 * @param scale Scale factor (1 = use actual bounding box size)
+	 */
+	_setBBoxScale(scale: number): void
+	{
+		this._bboxScale = scale;
+	}
+
+	/**
+	 * Get the bounding box scale factor.
+	 */
+	_getBBoxScale(): number
+	{
+		return this._bboxScale;
+	}
+
+	/**
+	 * Get the model-space bounding box dimensions (width, height, depth).
+	 * These are the raw dimensions before any instance scale is applied.
+	 * @returns [width, height, depth] or null if model not loaded
+	 */
+	_getBoundingBoxSize(): [number, number, number] | null
+	{
+		if (!this._model?.isLoaded) return null;
+
+		const min = this._model.boundingBoxMin;
+		const max = this._model.boundingBoxMax;
+
+		return [
+			(max[0] - min[0]) * this._bboxScale,
+			(max[1] - min[1]) * this._bboxScale,
+			(max[2] - min[2]) * this._bboxScale
+		];
+	}
+
+	/**
+	 * Get the world-space bounding box dimensions (with instance scale applied).
+	 * @returns [width, height, depth] or null if model not loaded
+	 */
+	_getWorldBoundingBoxSize(): [number, number, number] | null
+	{
+		const size = this._getBoundingBoxSize();
+		if (!size) return null;
+
+		return [
+			size[0] * this._scaleX,
+			size[1] * this._scaleY,
+			size[2] * this._scaleZ
+		];
+	}
+
+	/**
+	 * Get the bounding box as min/max coordinates in model space.
+	 * @returns { min: [x, y, z], max: [x, y, z] } or null if model not loaded
+	 */
+	_getBoundingBox(): { min: [number, number, number]; max: [number, number, number] } | null
+	{
+		if (!this._model?.isLoaded) return null;
+
+		const min = this._model.boundingBoxMin;
+		const max = this._model.boundingBoxMax;
+
+		return {
+			min: [min[0], min[1], min[2]],
+			max: [max[0], max[1], max[2]]
+		};
+	}
+
+	/**
+	 * Get the model's half-extents (half of bounding box dimensions) for physics shape creation.
+	 * This is the format typically used by Cannon.js for box shapes.
+	 * @returns [halfWidth, halfHeight, halfDepth] in world space, or null if model not loaded
+	 */
+	_getHalfExtents(): [number, number, number] | null
+	{
+		const size = this._getWorldBoundingBoxSize();
+		if (!size) return null;
+
+		return [
+			size[0] * 0.5,
+			size[1] * 0.5,
+			size[2] * 0.5
+		];
 	}
 
 	// ========================================================================

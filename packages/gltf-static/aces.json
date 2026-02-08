@@ -660,5 +660,46 @@
 				"returnType": "number"
 			}
 		]
+	},
+	"physics": {
+		"conditions": [],
+		"actions": [],
+		"expressions": [
+			{
+				"id": "bbox-width",
+				"expressionName": "BBoxWidth",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-height",
+				"expressionName": "BBoxHeight",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-depth",
+				"expressionName": "BBoxDepth",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-half-width",
+				"expressionName": "BBoxHalfWidth",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-half-height",
+				"expressionName": "BBoxHalfHeight",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-half-depth",
+				"expressionName": "BBoxHalfDepth",
+				"returnType": "number"
+			},
+			{
+				"id": "bbox-scale",
+				"expressionName": "BBoxScale",
+				"returnType": "number"
+			}
+		]
 	}
 }

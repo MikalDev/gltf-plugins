@@ -86,6 +86,10 @@ export class GltfModel {
 	// Bounding box center of all mesh positions (for rotation pivot)
 	private _localCenter: Float32Array = new Float32Array(3);
 
+	// Full bounding box (min/max for each axis) - for physics integration
+	private _boundingBoxMin: Float32Array = new Float32Array(3);
+	private _boundingBoxMax: Float32Array = new Float32Array(3);
+
 	// Skinning and animation data (references to shared cache, NOT owned)
 	private _skins: CachedSkinData[] = [];
 	private _animations: CachedAnimationData[] = [];
@@ -105,6 +109,16 @@ export class GltfModel {
 	/** Bounding box center of all mesh positions (rotation/scale pivot) */
 	get localCenter(): Float32Array {
 		return this._localCenter;
+	}
+
+	/** Bounding box minimum (model space) */
+	get boundingBoxMin(): Float32Array {
+		return this._boundingBoxMin;
+	}
+
+	/** Bounding box maximum (model space) */
+	get boundingBoxMax(): Float32Array {
+		return this._boundingBoxMax;
 	}
 
 	/** Whether worker pool is being used for transforms */
@@ -394,7 +408,16 @@ export class GltfModel {
 		this._localCenter[1] = (minY + maxY) * 0.5;
 		this._localCenter[2] = (minZ + maxZ) * 0.5;
 
+		// Store full bounding box for physics integration
+		this._boundingBoxMin[0] = minX;
+		this._boundingBoxMin[1] = minY;
+		this._boundingBoxMin[2] = minZ;
+		this._boundingBoxMax[0] = maxX;
+		this._boundingBoxMax[1] = maxY;
+		this._boundingBoxMax[2] = maxZ;
+
 		debugLog("Local center:", this._localCenter);
+		debugLog("Bounding box:", { min: this._boundingBoxMin, max: this._boundingBoxMax });
 	}
 
 	/**

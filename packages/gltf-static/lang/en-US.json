@@ -43,22 +43,26 @@
 				"aceCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
-					"bones": "Bones"
+					"bones": "Bones",
+					"physics": "Physics"
 				},
 				"conditionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
-					"bones": "Bones"
+					"bones": "Bones",
+					"physics": "Physics"
 				},
 				"actionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
-					"bones": "Bones"
+					"bones": "Bones",
+					"physics": "Physics"
 				},
 				"expressionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
-					"bones": "Bones"
+					"bones": "Bones",
+					"physics": "Physics"
 				},
 				"conditions": {
 					"is-loaded": {
@@ -662,6 +666,34 @@
 					"effective-frame-skip": {
 						"description": "Get the current effective frame skip value (accounting for distance LOD if enabled).",
 						"translated-name": "EffectiveFrameSkip"
+					},
+					"bbox-width": {
+						"description": "Get the world-space bounding box width (X dimension with scale applied).",
+						"translated-name": "BBoxWidth"
+					},
+					"bbox-height": {
+						"description": "Get the world-space bounding box height (Y dimension with scale applied).",
+						"translated-name": "BBoxHeight"
+					},
+					"bbox-depth": {
+						"description": "Get the world-space bounding box depth (Z dimension with scale applied).",
+						"translated-name": "BBoxDepth"
+					},
+					"bbox-half-width": {
+						"description": "Get half of the bounding box width (for physics box shapes).",
+						"translated-name": "BBoxHalfWidth"
+					},
+					"bbox-half-height": {
+						"description": "Get half of the bounding box height (for physics box shapes).",
+						"translated-name": "BBoxHalfHeight"
+					},
+					"bbox-half-depth": {
+						"description": "Get half of the bounding box depth (for physics box shapes).",
+						"translated-name": "BBoxHalfDepth"
+					},
+					"bbox-scale": {
+						"description": "Get the bounding box scale factor.",
+						"translated-name": "BBoxScale"
 					}
 				}
 			}
