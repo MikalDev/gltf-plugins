@@ -1737,17 +1737,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		const names = new Set<string>();
 
-		// Debug: log available sources
-		console.log("[BoneNames] animController:", !!this._animationController,
-			"model:", !!this._model,
-			"skins:", this._model?.skins?.length ?? 0,
-			"nodeNames:", this._model?.getNodeNames()?.length ?? 0);
-
 		// Source 1: Animated joint names from controller (skinned models with animation)
 		if (this._animationController)
 		{
 			const jointNames = this._animationController.getJointNames();
-			console.log("[BoneNames] Source 1 - Controller joints:", jointNames.length, JSON.stringify(jointNames));
 			for (const name of jointNames)
 			{
 				names.add(name);
@@ -1756,10 +1749,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Source 2: Joint names directly from model skins (skinned models without controller)
 		else if (this._model?.skins)
 		{
-			console.log("[BoneNames] Source 2 - Model skins:", this._model.skins.length);
 			for (const skin of this._model.skins)
 			{
-				console.log("[BoneNames] Skin joints:", skin.joints.length, JSON.stringify(skin.joints.map(j => j.name)));
 				for (const joint of skin.joints)
 				{
 					names.add(joint.name);
@@ -1771,16 +1762,13 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if (this._model)
 		{
 			const nodeNames = this._model.getNodeNames();
-			console.log("[BoneNames] Source 3 - Node names:", nodeNames.length, JSON.stringify(nodeNames));
 			for (const name of nodeNames)
 			{
 				names.add(name);
 			}
 		}
 
-		const result = JSON.stringify(Array.from(names));
-		console.log("[BoneNames] Result:", result);
-		return result;
+		return JSON.stringify(Array.from(names));
 	}
 
 	/**

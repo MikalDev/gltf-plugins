@@ -1,5 +1,6 @@
 # TypeScript compiled outputs at root level (built from *.ts)
 /*.js
+!package.js
 
 # Keep c3runtime JS files (hand-written, not compiled)
 # ts-defs are type definitions, keep them

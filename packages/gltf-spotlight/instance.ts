@@ -72,8 +72,8 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		const b = color.getB();
 
 		// Draw spotlight icon - a square with a cone
-		const size = 16;
-		const coneLength = 40;
+		const size = 32;
+		const coneLength = 64;
 
 		iRenderer.SetColorFillMode();
 
@@ -102,8 +102,9 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		const perpX = -normY * Math.tan(halfAngle) * coneLength;
 		const perpY = normX * Math.tan(halfAngle) * coneLength;
 
-		// Draw cone edges using smooth line mode
+		// Draw cone edges using smooth line mode with thicker lines
 		iRenderer.SetSmoothLineFillMode();
+		iRenderer.PushLineWidth(3);
 		if (enabled) {
 			iRenderer.SetColorRgba(r, g, b, 0.7);
 		} else {
@@ -112,6 +113,23 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		iRenderer.Line(x, y, endX + perpX, endY + perpY);
 		iRenderer.Line(x, y, endX - perpX, endY - perpY);
 		iRenderer.Line(endX + perpX, endY + perpY, endX - perpX, endY - perpY);
+		iRenderer.PopLineWidth();
+
+		// Draw orange wireframe box outline around icon (Unity/Unreal style gizmo color)
+		iRenderer.PushLineWidth(2);
+		const outlineColor = enabled ? { r: 1.0, g: 0.55, b: 0.0, a: 1.0 } : { r: 0.6, g: 0.4, b: 0.2, a: 0.5 };
+		iRenderer.SetColorRgba(outlineColor.r, outlineColor.g, outlineColor.b, outlineColor.a);
+		const boxPadding = 4;
+		const boxLeft = x - size / 2 - boxPadding;
+		const boxRight = x + size / 2 + boxPadding;
+		const boxTop = y - size / 2 - boxPadding;
+		const boxBottom = y + size / 2 + boxPadding;
+		// Draw box outline (4 lines)
+		iRenderer.Line(boxLeft, boxTop, boxRight, boxTop);       // top
+		iRenderer.Line(boxRight, boxTop, boxRight, boxBottom);   // right
+		iRenderer.Line(boxRight, boxBottom, boxLeft, boxBottom); // bottom
+		iRenderer.Line(boxLeft, boxBottom, boxLeft, boxTop);     // left
+		iRenderer.PopLineWidth();
 	}
 
 	private _updateGlobalSpotlight(): void

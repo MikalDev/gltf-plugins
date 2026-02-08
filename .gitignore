@@ -19,3 +19,7 @@ npm-debug.log*
 # Temporary files
 *.tmp
 *.temp
+
+# Build output
+releases/
+dist/

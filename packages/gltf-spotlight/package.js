@@ -7,31 +7,27 @@ const DIST_DIR = "../../releases";
 const ADDON_JSON = "addon.json";
 
 async function build() {
-	console.log("=== Building glTF Static Addon ===\n");
+	console.log("=== Building glTF Spotlight Addon ===\n");
 
-	// 1. Build the gltf bundle
-	console.log("1. Building gltf-bundle.js...");
-	execSync("node build.js", { stdio: "inherit" });
-
-	// 2. Compile TypeScript
-	console.log("\n2. Compiling TypeScript...");
+	// 1. Compile TypeScript
+	console.log("1. Compiling TypeScript...");
 	execSync("npx tsc", { stdio: "inherit" });
 
-	// 3. Read addon.json to get file list and version
-	console.log("\n3. Reading addon.json...");
+	// 2. Read addon.json to get file list and version
+	console.log("\n2. Reading addon.json...");
 	const addonJson = JSON.parse(fs.readFileSync(ADDON_JSON, "utf8"));
 	const fileList = addonJson["file-list"];
 	const version = addonJson["version"];
 	const addonId = addonJson["id"];
 
-	// 4. Create dist directory if it doesn't exist
+	// 3. Create dist directory if it doesn't exist
 	if (!fs.existsSync(DIST_DIR)) {
 		fs.mkdirSync(DIST_DIR, { recursive: true });
 	}
 
-	// 5. Create .c3addon file (ZIP archive)
+	// 4. Create .c3addon file (ZIP archive)
 	const outputFile = path.join(DIST_DIR, `${addonId}-${version}.c3addon`);
-	console.log(`\n4. Creating ${outputFile}...`);
+	console.log(`\n3. Creating ${outputFile}...`);
 
 	await createC3Addon(fileList, outputFile);
 

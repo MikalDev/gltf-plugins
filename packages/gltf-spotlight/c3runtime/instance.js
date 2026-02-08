@@ -27,6 +27,11 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._dirX = 1;
         this._dirY = 0;
         this._dirZ = 0;
+        // Dirty tracking for position updates
+        this._lastX = NaN;
+        this._lastY = NaN;
+        this._lastZ = NaN;
+        this._needsUpdate = true;
         const properties = this._getInitProperties();
         if (properties) {
             this._enabled = properties[PROP_ENABLED];
@@ -88,8 +93,20 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         Lighting.setSpotLightRange(this._lightId, this._range);
     }
     _tick() {
-        // Update position each tick in case instance moved
-        this._updateSpotLight();
+        // Check if position changed or update is needed
+        const currentX = this.x;
+        const currentY = this.y;
+        const currentZ = this.totalZElevation;
+        const positionChanged = currentX !== this._lastX ||
+            currentY !== this._lastY ||
+            currentZ !== this._lastZ;
+        if (positionChanged || this._needsUpdate) {
+            this._lastX = currentX;
+            this._lastY = currentY;
+            this._lastZ = currentZ;
+            this._needsUpdate = false;
+            this._updateSpotLight();
+        }
     }
     // === Actions ===
     _SetEnabled(enabled) {
@@ -206,7 +223,8 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._dirX = data["dirX"] ?? 1;
         this._dirY = data["dirY"] ?? 0;
         this._dirZ = data["dirZ"] ?? 0;
-        this._updateSpotLight();
+        // Force full update on next tick
+        this._needsUpdate = true;
     }
 };
 export {};

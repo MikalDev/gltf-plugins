@@ -53,6 +53,12 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 	_dirY: number = 0;
 	_dirZ: number = 0;
 
+	// Dirty tracking for position updates
+	_lastX: number = NaN;
+	_lastY: number = NaN;
+	_lastZ: number = NaN;
+	_needsUpdate: boolean = true;
+
 	constructor()
 	{
 		super();
@@ -143,8 +149,23 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 
 	_tick(): void
 	{
-		// Update position each tick in case instance moved
-		this._updateSpotLight();
+		// Check if position changed or update is needed
+		const currentX = this.x;
+		const currentY = this.y;
+		const currentZ = this.totalZElevation;
+
+		const positionChanged = currentX !== this._lastX ||
+		                        currentY !== this._lastY ||
+		                        currentZ !== this._lastZ;
+
+		if (positionChanged || this._needsUpdate)
+		{
+			this._lastX = currentX;
+			this._lastY = currentY;
+			this._lastZ = currentZ;
+			this._needsUpdate = false;
+			this._updateSpotLight();
+		}
 	}
 
 	// === Actions ===
@@ -314,7 +335,8 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		this._dirX = (data["dirX"] as number) ?? 1;
 		this._dirY = (data["dirY"] as number) ?? 0;
 		this._dirZ = (data["dirZ"] as number) ?? 0;
-		this._updateSpotLight();
+		// Force full update on next tick
+		this._needsUpdate = true;
 	}
 };
 
