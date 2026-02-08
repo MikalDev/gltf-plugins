@@ -997,7 +997,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const z = this._inst.GetZElevation();
 		const angle = this._inst.GetAngle();
 		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
-		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
+		// Y rotation offset by +180 degrees to match runtime orientation
+		const rotY = (((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) + 180) * DEG_TO_RAD;
 		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 
@@ -1099,33 +1100,49 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	}
 
 	/**
-	 * Calculate average lighting color for a mesh based on spotlights and environment.
-	 * Returns a single color to tint the entire mesh (per-vertex lighting would require custom shaders).
+	 * Calculate per-vertex lighting colors for a mesh based on spotlights and environment.
+	 * Returns a Float32Array with RGBA values (4 floats per vertex) for use with DrawMesh.
+	 * Matches the runtime's calculateMeshLighting pattern from Lighting.ts.
 	 */
-	_calculateMeshLighting(
+	_calculateVertexColors(
 		mesh: { positions: Float32Array; normals: Float32Array | null; vertexCount: number },
 		spotlights: EditorSpotlight[],
 		env?: EditorEnvironment
-	): [number, number, number]
+	): Float32Array
 	{
-		if (!mesh.normals) return [1, 1, 1];
+		const vertexCount = mesh.vertexCount;
+		const colors = new Float32Array(vertexCount * 4);
+		const positions = mesh.positions;
+		const normals = mesh.normals;
 
-		// Calculate lighting for a representative sample of vertices and average
-		const sampleCount = Math.min(mesh.vertexCount, 16);
-		const step = Math.max(1, Math.floor(mesh.vertexCount / sampleCount));
-
-		let totalR = 0, totalG = 0, totalB = 0;
-		let sampledCount = 0;
-
-		for (let i = 0; i < mesh.vertexCount; i += step)
+		// If no normals, return white for all vertices
+		if (!normals)
 		{
-			const vIdx = i * 3;
-			const vx = mesh.positions[vIdx];
-			const vy = mesh.positions[vIdx + 1];
-			const vz = mesh.positions[vIdx + 2];
-			const nx = mesh.normals[vIdx];
-			const ny = mesh.normals[vIdx + 1];
-			const nz = mesh.normals[vIdx + 2];
+			for (let i = 0; i < vertexCount; i++)
+			{
+				const off4 = i * 4;
+				colors[off4] = 1;
+				colors[off4 + 1] = 1;
+				colors[off4 + 2] = 1;
+				colors[off4 + 3] = 1;
+			}
+			return colors;
+		}
+
+		for (let i = 0; i < vertexCount; i++)
+		{
+			const off3 = i * 3;
+			const off4 = i * 4;
+
+			// Vertex position (already in world space from _updateTransformedMeshes)
+			const px = positions[off3];
+			const py = positions[off3 + 1];
+			const pz = positions[off3 + 2];
+
+			// Normal (already transformed in _updateTransformedMeshes)
+			const nx = normals[off3];
+			const ny = normals[off3 + 1];
+			const nz = normals[off3 + 2];
 
 			// Start with ambient from environment
 			let r = 0, g = 0, b = 0;
@@ -1135,15 +1152,15 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				g = env.ambientColor[1] * env.ambientIntensity;
 				b = env.ambientColor[2] * env.ambientIntensity;
 
-				// Add hemisphere lighting if enabled
+				// Hemisphere lighting: blend sky/ground based on normal Z (matches runtime)
 				if (env.hemisphereEnabled)
 				{
-					// Blend sky/ground based on normal Z (up direction)
 					const blend = (nz + 1) * 0.5;  // Maps [-1, 1] to [0, 1]
+					const invBlend = 1 - blend;
 					const hemi = env.hemisphereIntensity;
-					r += (env.groundColor[0] * (1 - blend) + env.skyColor[0] * blend) * hemi;
-					g += (env.groundColor[1] * (1 - blend) + env.skyColor[1] * blend) * hemi;
-					b += (env.groundColor[2] * (1 - blend) + env.skyColor[2] * blend) * hemi;
+					r += (env.groundColor[0] * invBlend + env.skyColor[0] * blend) * hemi;
+					g += (env.groundColor[1] * invBlend + env.skyColor[1] * blend) * hemi;
+					b += (env.groundColor[2] * invBlend + env.skyColor[2] * blend) * hemi;
 				}
 			}
 			else
@@ -1152,71 +1169,90 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				r = g = b = 0.3;
 			}
 
-			// Add contribution from each spotlight
-			for (const light of spotlights)
+			// Spotlight contributions (matches runtime calculateMeshLighting)
+			for (let j = 0; j < spotlights.length; j++)
 			{
-				if (!light.enabled) continue;
+				const spot = spotlights[j];
+				if (!spot.enabled) continue;
 
 				// Vector from light to vertex
-				const dx = vx - light.position[0];
-				const dy = vy - light.position[1];
-				const dz = vz - light.position[2];
-				const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-				if (dist === 0) continue;
+				const dx = px - spot.position[0];
+				const dy = py - spot.position[1];
+				const dz = pz - spot.position[2];
+				const distSq = dx * dx + dy * dy + dz * dz;
+				const dist = Math.sqrt(distSq);
 
-				// Normalize direction to vertex
-				const toVertexX = dx / dist;
-				const toVertexY = dy / dist;
-				const toVertexZ = dz / dist;
+				if (dist < 0.0001) continue;  // Avoid division by zero
 
-				// Check if vertex is in cone
-				const cosAngle = toVertexX * light.direction[0] +
-				                 toVertexY * light.direction[1] +
-				                 toVertexZ * light.direction[2];
+				// Normalize direction from light to vertex
+				const invDist = 1 / dist;
+				const toVertX = dx * invDist;
+				const toVertY = dy * invDist;
+				const toVertZ = dz * invDist;
 
-				const innerCos = Math.cos(light.innerAngle * DEG_TO_RAD);
-				const outerCos = Math.cos(light.outerAngle * DEG_TO_RAD);
+				// Angular falloff: dot product of spot direction and light-to-vertex
+				const cosAngle = spot.direction[0] * toVertX +
+				                 spot.direction[1] * toVertY +
+				                 spot.direction[2] * toVertZ;
 
-				if (cosAngle < outerCos) continue;  // Outside cone
+				// Cone angle cosines
+				const innerCos = Math.cos(spot.innerAngle * DEG_TO_RAD);
+				const outerCos = Math.cos(spot.outerAngle * DEG_TO_RAD);
+
+				// Outside outer cone - no contribution
+				if (cosAngle <= outerCos) continue;
 
 				// Angular attenuation
-				let angularAtten = 1.0;
-				if (cosAngle < innerCos)
+				let angularAtten: number;
+				if (cosAngle >= innerCos)
 				{
-					angularAtten = (cosAngle - outerCos) / (innerCos - outerCos);
+					angularAtten = 1;  // Inside inner cone
+				}
+				else
+				{
+					// Penumbra falloff
+					const t = (cosAngle - outerCos) / (innerCos - outerCos);
+					angularAtten = t;  // Linear falloff (runtime uses pow with falloffExponent)
 				}
 
 				// Distance attenuation
-				let distAtten = 1.0;
-				if (light.range > 0)
+				let distAtten = 1;
+				if (spot.range > 0)
 				{
-					distAtten = Math.max(0, 1 - dist / light.range);
-					distAtten *= distAtten;  // quadratic falloff
+					if (dist >= spot.range) continue;
+					const normalizedDist = dist / spot.range;
+					const rangeAtten = 1 - normalizedDist * normalizedDist;
+					distAtten = rangeAtten * rangeAtten;
+				}
+				else
+				{
+					// Inverse square falloff
+					distAtten = 1 / (1 + distSq);
 				}
 
-				// N·L (negate toVertex since it points away from light)
-				const NdotL = Math.max(0, -(nx * toVertexX + ny * toVertexY + nz * toVertexZ));
+				// N·L: direction FROM vertex TO light is negative of toVert
+				const lightDirX = -toVertX;
+				const lightDirY = -toVertY;
+				const lightDirZ = -toVertZ;
+				const NdotL = nx * lightDirX + ny * lightDirY + nz * lightDirZ;
 
-				const contrib = NdotL * light.intensity * angularAtten * distAtten;
-				r += light.color[0] * contrib;
-				g += light.color[1] * contrib;
-				b += light.color[2] * contrib;
+				if (NdotL > 0)
+				{
+					const contrib = NdotL * spot.intensity * angularAtten * distAtten;
+					r += spot.color[0] * contrib;
+					g += spot.color[1] * contrib;
+					b += spot.color[2] * contrib;
+				}
 			}
 
-			totalR += r;
-			totalG += g;
-			totalB += b;
-			sampledCount++;
+			// Write output (clamped to 2.0 like runtime, allows overbright)
+			colors[off4] = r > 2 ? 2 : r;
+			colors[off4 + 1] = g > 2 ? 2 : g;
+			colors[off4 + 2] = b > 2 ? 2 : b;
+			colors[off4 + 3] = 1;
 		}
 
-		if (sampledCount === 0) return [1, 1, 1];
-
-		// Return average, clamped to 0-1
-		return [
-			Math.min(1, totalR / sampledCount),
-			Math.min(1, totalG / sampledCount),
-			Math.min(1, totalB / sampledCount)
-		];
+		return colors;
 	}
 
 	Draw(iRenderer: SDK.Gfx.IWebGLRenderer, iDrawParams: SDK.Gfx.IDrawParams): void
@@ -1246,42 +1282,32 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			{
 				const tex = mesh.textureIndex >= 0 ? this._model.textures[mesh.textureIndex] : null;
 
-				// Calculate lit vertex colors if any lighting exists and mesh has normals
-				let litColor: [number, number, number] | null = null;
-				if ((spotlights.length > 0 || env) && mesh.normals)
+				// Calculate per-vertex colors if lighting exists and mesh has normals
+				let vertexColors: Float32Array | undefined;
+				const hasLighting = (spotlights.length > 0 || env) && mesh.normals;
+
+				if (hasLighting)
 				{
-					litColor = this._calculateMeshLighting(mesh, spotlights, env);
+					vertexColors = this._calculateVertexColors(mesh, spotlights, env);
 				}
 
 				if (tex)
 				{
-					// Textured rendering with lighting tint
 					iRenderer.SetTextureFillMode();
 					iRenderer.SetTexture(tex);
-					if (litColor)
-					{
-						iRenderer.SetColorRgba(litColor[0], litColor[1], litColor[2], 1);
-					}
-					else
-					{
-						iRenderer.ResetColor();
-					}
 				}
 				else
 				{
-					// Fallback to gray color for non-textured meshes
 					iRenderer.SetColorFillMode();
-					if (litColor)
-					{
-						iRenderer.SetColorRgba(litColor[0] * 0.7, litColor[1] * 0.7, litColor[2] * 0.7, 1);
-					}
-					else
-					{
-						iRenderer.SetColorRgba(0.7, 0.7, 0.7, 1);
-					}
 				}
 
-				iRenderer.DrawMesh(mesh.positions, mesh.uvs, mesh.indices);
+				// Default gray when no vertex colors
+				if (!vertexColors)
+				{
+					iRenderer.SetColorRgba(0.7, 0.7, 0.7, 1);
+				}
+
+				iRenderer.DrawMesh(mesh.positions, mesh.uvs, mesh.indices, vertexColors);
 			}
 		}
 		else
