@@ -133,6 +133,11 @@
 							}
 						}
 					},
+					"is-lighting-baked": {
+						"list-name": "Is lighting baked",
+						"display-text": "{my} lighting is baked",
+						"description": "True if the model has baked (frozen) lighting."
+					},
 					"has-bone": {
 						"list-name": "Has bone",
 						"display-text": "{my} has bone [b]{0}[/b]",
@@ -398,6 +403,21 @@
 								"desc": "Quaternion W component."
 							}
 						}
+					},
+					"bake-lighting": {
+						"list-name": "Bake lighting",
+						"display-text": "{my} bake lighting",
+						"description": "Freeze lighting calculation for the entire model. Maximum performance for static scenes."
+					},
+					"unbake-lighting": {
+						"list-name": "Unbake lighting",
+						"display-text": "{my} unbake lighting",
+						"description": "Re-enable dynamic lighting for the model. May require model reload if memory was freed."
+					},
+					"refresh-and-bake-lighting": {
+						"list-name": "Refresh and bake lighting",
+						"display-text": "{my} refresh and bake lighting",
+						"description": "Recalculate lighting with current scene, then freeze. Use when lights changed."
 					},
 					"set-animation-frame-skip": {
 						"list-name": "Set animation frame skip",

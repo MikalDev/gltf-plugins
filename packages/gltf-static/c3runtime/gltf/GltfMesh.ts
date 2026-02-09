@@ -37,6 +37,9 @@ export class GltfMesh {
 	private _lastRotationMatrix: Float32Array | null = null;
 	private _lastCameraPosition: Float32Array | null = null;
 
+	// Lighting baking
+	private _lightingBaked: boolean = false;
+
 	// Worker pool integration
 	private _workerPool: TransformWorkerPool | null = null;
 	private _isRegisteredWithPool = false;
@@ -614,6 +617,11 @@ export class GltfMesh {
 	 * @param cameraPosition Optional camera position for specular calculations
 	 */
 	applyLighting(modelMatrix?: Float32Array | null, force: boolean = false, cameraPosition?: Float32Array | null): void {
+		// Skip baked meshes unless forcing recalculation
+		if (this._lightingBaked && !force) {
+			return;
+		}
+
 		if (!this._meshData || !this._hasNormals || !this._transformedNormals) return;
 
 		const currentVersion = getLightingVersion();
@@ -711,6 +719,68 @@ export class GltfMesh {
 		this._lastLightingVersion = -1;
 		this._lastRotationMatrix = null;
 		this._lastCameraPosition = null;
+	}
+
+	/**
+	 * Bake (freeze) lighting on this mesh to improve performance.
+	 * Lighting will not recalculate until refreshed or unbaked.
+	 * @param freeMemory If true, free CPU-side normal buffers to save memory (~24 bytes per vertex)
+	 */
+	bakeLighting(freeMemory: boolean = true): void {
+		if (!this._meshData || !this._hasNormals) return;
+
+		this._lightingBaked = true;
+
+		if (freeMemory) {
+			// Free CPU-side normals to save memory
+			this._originalNormals = null;
+			this._transformedNormals = null;
+			this._lastRotationMatrix = null;
+			this._lastCameraPosition = null;
+		}
+	}
+
+	/**
+	 * Unbake lighting to re-enable dynamic lighting.
+	 * @returns true if successful, false if normals were freed (requires model reload)
+	 */
+	unbakeLighting(): boolean {
+		if (!this._lightingBaked) return true;
+
+		this._lightingBaked = false;
+
+		// Check if we can restore normals
+		if (!this._originalNormals) {
+			console.warn("Cannot unbake lighting: normals were freed. Reload model or use RefreshMeshLightingAndBake.");
+			this._lightingBaked = true;  // Re-enable baking
+			return false;
+		}
+
+		this.invalidateLighting();
+		return true;
+	}
+
+	/**
+	 * Recalculate lighting with current scene state, then re-bake.
+	 * Useful when lights have changed but you want to keep baking enabled.
+	 */
+	refreshLightingAndBake(modelMatrix?: Float32Array | null, cameraPosition?: Float32Array | null): void {
+		// Temporarily unbake, force recalculation, then re-bake
+		const wasBaked = this._lightingBaked;
+		this._lightingBaked = false;
+
+		this.applyLighting(modelMatrix, true, cameraPosition);  // force=true
+
+		if (wasBaked) {
+			this.bakeLighting(true);  // Re-bake with memory optimization
+		}
+	}
+
+	/**
+	 * Check if lighting is baked (frozen) on this mesh.
+	 */
+	isBaked(): boolean {
+		return this._lightingBaked;
 	}
 
 	/** Get texture reference for debugging */

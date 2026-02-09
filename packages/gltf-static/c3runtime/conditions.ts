@@ -58,5 +58,11 @@ C3.Plugins.GltfStatic.Cnds =
 	HasBone(this: SDKInstanceClass, name: string): boolean
 	{
 		return this._hasBone(name);
+	},
+
+	// Lighting baking conditions
+	IsLightingBaked(this: SDKInstanceClass): boolean
+	{
+		return this._isLightingBaked();
 	}
 };

@@ -549,10 +549,10 @@ export class GltfModel {
 			return;
 		}
 
-		// Collect mesh IDs
+		// Collect mesh IDs (skip baked meshes)
 		const meshIds: number[] = [];
 		for (const mesh of this._meshes) {
-			if (!mesh.isSkinned && mesh.isRegisteredStaticLightingWithPool) {
+			if (!mesh.isSkinned && mesh.isRegisteredStaticLightingWithPool && !mesh.isBaked()) {
 				meshIds.push(mesh.id);
 			}
 		}

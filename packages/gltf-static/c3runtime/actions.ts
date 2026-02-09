@@ -128,5 +128,21 @@ C3.Plugins.GltfStatic.Acts =
 	SetRotationQuaternionXYZW(this: SDKInstanceClass, x: number, y: number, z: number, w: number): void
 	{
 		this._setRotationQuaternion(x, y, z, w);
+	},
+
+	// Lighting baking actions
+	BakeLighting(this: SDKInstanceClass): void
+	{
+		this._bakeLighting();
+	},
+
+	UnbakeLighting(this: SDKInstanceClass): void
+	{
+		this._unbakeLighting();
+	},
+
+	RefreshAndBakeLighting(this: SDKInstanceClass): void
+	{
+		this._refreshAndBakeLighting();
 	}
 };

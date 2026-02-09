@@ -356,6 +356,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			const lightConfig = this._buildLightConfig();
 			if (lightConfig)
 			{
+				// Only queue non-baked meshes (worker filters internally via queueStaticLighting)
 				this._model.queueStaticLighting(lightConfig);
 			}
 			// Skinned meshes get lighting via queueSkinning in _updateSkinnedMeshes
@@ -368,7 +369,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const cameraPosition = this._getCameraPosition();
 		for (const mesh of meshes)
 		{
-			if (mesh.hasNormals && !mesh.isSkinned)
+			// Skip baked meshes
+			if (mesh.hasNormals && !mesh.isSkinned && !mesh.isBaked())
 			{
 				mesh.applyLighting(rotMatrix, false, cameraPosition);
 			}
@@ -878,6 +880,57 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const meshes = this._model?.meshes;
 		if (!meshes || index < 0 || index >= meshes.length) return "";
 		return meshes[index].name;
+	}
+
+	// ========================================================================
+	// Lighting Baking Methods
+	// ========================================================================
+
+	_bakeLighting(): void
+	{
+		if (!this._model) return;
+
+		// Apply lighting to all first
+		this._applyLightingToAllMeshes();
+
+		// Then bake all
+		for (const mesh of this._model.meshes)
+		{
+			if (mesh.hasNormals && !mesh.isSkinned)
+			{
+				mesh.bakeLighting(true);
+			}
+		}
+	}
+
+	_unbakeLighting(): void
+	{
+		if (!this._model) return;
+		for (const mesh of this._model.meshes)
+		{
+			mesh.unbakeLighting();
+		}
+	}
+
+	_refreshAndBakeLighting(): void
+	{
+		if (!this._model) return;
+		const rotMatrix = this._buildModelRotationMatrix();
+		const cameraPosition = this._getCameraPosition();
+
+		for (const mesh of this._model.meshes)
+		{
+			if (mesh.hasNormals && !mesh.isSkinned)
+			{
+				mesh.refreshLightingAndBake(rotMatrix, cameraPosition);
+			}
+		}
+	}
+
+	_isLightingBaked(): boolean
+	{
+		if (!this._model) return false;
+		return this._model.meshes.some(mesh => mesh.isBaked());
 	}
 
 	// ========================================================================
