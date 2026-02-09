@@ -790,7 +790,7 @@ export class TransformWorkerPool {
 		this._skinnedMeshRegistry.set(meshId, { workerIndex, callback, hasNormals: normals !== null });
 
 		// Transfer all data to worker
-		const transferList: ArrayBuffer[] = [positions.buffer];
+		const transferList: ArrayBufferLike[] = [positions.buffer];
 		if (normals && normals.buffer.byteLength > 0 && !transferList.includes(normals.buffer)) {
 			transferList.push(normals.buffer);
 		}
@@ -830,7 +830,7 @@ export class TransformWorkerPool {
 		this._staticLightingRegistry.set(meshId, { workerIndex, callback });
 
 		// Transfer positions and normals to worker
-		const transferList: ArrayBuffer[] = [normals.buffer];
+		const transferList: ArrayBufferLike[] = [normals.buffer];
 		if (positions && positions.buffer.byteLength > 0 && !transferList.includes(positions.buffer)) {
 			transferList.push(positions.buffer);
 		}
