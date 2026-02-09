@@ -9,5 +9,8 @@
     "build:static": "npm run build -w packages/gltf-static",
     "build:spotlight": "npm run build -w packages/gltf-spotlight",
     "build:environment": "npm run build -w packages/gltf-environment"
+  },
+  "dependencies": {
+    "typescript": "^5.9.3"
   }
 }

@@ -1579,6 +1579,65 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	}
 
 	/**
+	 * Model loaded state for physics integration.
+	 * Returns true when model is fully loaded and ready.
+	 */
+	get loaded(): boolean
+	{
+		return this._model?.isLoaded ?? false;
+	}
+
+	/**
+	 * Bounding box minimum for physics integration.
+	 * Returns [x, y, z] minimum bounds in WORLD SPACE (includes instance scale).
+	 * Example: [-25, -50, -25] for a model centered at origin.
+	 */
+	get xMinBB(): [number, number, number]
+	{
+		const bbox = this._getBoundingBox();
+		if (!bbox) return [0, 0, 0];
+
+		// Apply instance scale to get world-space bounding box
+		const worldMin: [number, number, number] = [
+			bbox.min[0] * this._scaleX,
+			bbox.min[1] * this._scaleY,
+			bbox.min[2] * this._scaleZ
+		];
+
+		if (this._debug) {
+			console.log("[GltfStatic Physics] xMinBB (world-space):", worldMin,
+				"model-space:", bbox.min, "scale:", [this._scaleX, this._scaleY, this._scaleZ]);
+		}
+
+		return worldMin;
+	}
+
+	/**
+	 * Bounding box maximum for physics integration.
+	 * Returns [x, y, z] maximum bounds in WORLD SPACE (includes instance scale).
+	 * Example: [25, 50, 25] for a model centered at origin.
+	 */
+	get xMaxBB(): [number, number, number]
+	{
+		const bbox = this._getBoundingBox();
+		if (!bbox) return [0, 0, 0];
+
+		// Apply instance scale to get world-space bounding box
+		const worldMax: [number, number, number] = [
+			bbox.max[0] * this._scaleX,
+			bbox.max[1] * this._scaleY,
+			bbox.max[2] * this._scaleZ
+		];
+
+		if (this._debug) {
+			console.log("[GltfStatic Physics] xMaxBB (world-space):", worldMax,
+				"model-space:", bbox.max, "scale:", [this._scaleX, this._scaleY, this._scaleZ]);
+		}
+
+		return worldMax;
+	}
+
+	/**
 	 * Set the bounding box scale factor for physics shape sizing.
 	 * @param scale Scale factor (1 = use actual bounding box size)
 	 */
