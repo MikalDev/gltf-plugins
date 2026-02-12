@@ -52,12 +52,14 @@ function modelLoadWarn(...args: unknown[]): void {
 }
 
 // Property indices (link properties are excluded from _getInitProperties)
-// Only data properties are included: model-url, rotation-x, rotation-y, rotation-z, scale
+// Only data properties are included: model-url, rotation-x, rotation-y, rotation-z, scale, use-built-in-model, built-in-model-type
 const PROP_MODEL_URL = 0;
 const PROP_ROTATION_X = 1;
 const PROP_ROTATION_Y = 2;
 const PROP_ROTATION_Z = 3;
 const PROP_SCALE = 4;
+const PROP_USE_BUILTIN = 5;
+const PROP_BUILTIN_TYPE = 6;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempMatrix = mat4.create();
@@ -73,6 +75,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 {
 	// Model state
 	_modelUrl: string = "";
+	_useBuiltinModel: boolean = false;
+	_builtinModelType: number = 0; // 0 = cube, 1 = sphere
 	_rotationX: number = 0;
 	_rotationY: number = 0;
 	_rotationZ: number = 0;
@@ -139,20 +143,31 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._scaleX = uniformScale;
 			this._scaleY = uniformScale;
 			this._scaleZ = uniformScale;
+			// Built-in model properties
+			this._useBuiltinModel = props[PROP_USE_BUILTIN] as boolean;
+			this._builtinModelType = props[PROP_BUILTIN_TYPE] as number;
 
 			debugLog("Properties loaded:", {
 				modelUrl: this._modelUrl,
 				rotationX: this._rotationX,
 				rotationY: this._rotationY,
 				rotationZ: this._rotationZ,
-				scale: { x: this._scaleX, y: this._scaleY, z: this._scaleZ }
+				scale: { x: this._scaleX, y: this._scaleY, z: this._scaleZ },
+				useBuiltinModel: this._useBuiltinModel,
+				builtinModelType: this._builtinModelType
 			});
 
 			// Initialize quaternion from euler angles
 			this._updateQuatFromEuler();
 
-			// Auto-load model if URL is set
-			if (this._modelUrl)
+			// Auto-load model: built-in model takes priority over URL
+			if (this._useBuiltinModel)
+			{
+				const builtinUrl = this._builtinModelType === 0 ? "builtin:cube" : "builtin:sphere";
+				modelLoadLog("Auto-loading built-in model:", builtinUrl);
+				this._loadModel(builtinUrl);
+			}
+			else if (this._modelUrl)
 			{
 				modelLoadLog("Auto-loading model from URL:", this._modelUrl);
 				this._loadModel(this._modelUrl);

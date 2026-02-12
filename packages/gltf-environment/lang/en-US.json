@@ -114,6 +114,24 @@
 						"params": {
 							"intensity": { "name": "Intensity", "desc": "Hemisphere intensity multiplier." }
 						}
+					},
+					"set-color-blend-mode": {
+						"list-name": "Set color blend mode",
+						"display-text": "Set vertex color blend mode to [b]{0}[/b]",
+						"description": "Set how vertex colors from glTF models blend with computed lighting.",
+						"params": {
+							"mode": {
+								"name": "Mode",
+								"desc": "The blend mode for vertex colors with lighting.",
+								"items": {
+									"none": "None (lighting only)",
+									"multiply": "Multiply (tinting)",
+									"screen": "Screen (brightening)",
+									"overlay": "Overlay (contrast)",
+									"add": "Add (glow/emission)"
+								}
+							}
+						}
 					}
 				},
 				"expressions": {
@@ -160,6 +178,10 @@
 					"ground-color-b": {
 						"description": "Get the ground blue color component (0-255).",
 						"translated-name": "GroundColorB"
+					},
+					"color-blend-mode": {
+						"description": "Get the current vertex color blend mode (none, multiply, screen, overlay, add).",
+						"translated-name": "ColorBlendMode"
 					}
 				}
 			}

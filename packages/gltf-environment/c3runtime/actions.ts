@@ -30,6 +30,11 @@ C3.Plugins.GltfEnvironment.Acts =
 	SetHemisphereIntensity(this: SDKInstanceClass, intensity: number): void
 	{
 		this._SetHemisphereIntensity(intensity);
+	},
+
+	SetColorBlendMode(this: SDKInstanceClass, mode: number): void
+	{
+		this._SetColorBlendMode(mode);
 	}
 };
 

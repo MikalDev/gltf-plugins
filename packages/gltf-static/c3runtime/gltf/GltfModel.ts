@@ -17,6 +17,7 @@ import {
 	AnimationInterpolation,
 	AnimationTargetPath
 } from "./types.js";
+import { isBuiltinModelUrl, resolveBuiltinUrl } from "./BuiltinModels.js";
 
 // Debug logging - set to false to disable
 const DEBUG = false;
@@ -227,7 +228,14 @@ export class GltfModel {
 		debugLog("Fetching and parsing glTF document...");
 		const fetchStart = performance.now();
 		const io = new WebIO();
-		const document = await io.read(url);
+
+		// Resolve built-in URLs to data URLs for loading
+		const loadUrl = resolveBuiltinUrl(url);
+		if (loadUrl !== url) {
+			debugLog("Resolved built-in model:", url, "->", "data URL");
+		}
+
+		const document = await io.read(loadUrl);
 		const root = document.getRoot();
 		debugLog(`Document parsed in ${(performance.now() - fetchStart).toFixed(0)}ms`);
 
@@ -927,6 +935,19 @@ export class GltfModel {
 			debugLog(`    UV range: U[${minU.toFixed(2)}-${maxU.toFixed(2)}], V[${minV.toFixed(2)}-${maxV.toFixed(2)}]`);
 		}
 
+		// Get vertex colors if available (COLOR_0 attribute)
+		const colorAccessor = primitive.getAttribute("COLOR_0");
+		let sourceColors: Float32Array | null = null;
+		if (colorAccessor) {
+			const colorArray = colorAccessor.getArray();
+			if (colorArray) {
+				sourceColors = colorArray instanceof Float32Array
+					? new Float32Array(colorArray)
+					: new Float32Array(colorArray);
+				debugLog(`    Vertex colors: ${colorAccessor.getCount()} verts, ${colorAccessor.getElementSize()} components`);
+			}
+		}
+
 		// Get indices - convert to appropriate type
 		let indices: Uint16Array | Uint32Array;
 		if (indicesArray instanceof Uint16Array || indicesArray instanceof Uint32Array) {
@@ -994,11 +1015,27 @@ export class GltfModel {
 					debugWarn(`    Material has texture but not found in map`);
 				}
 			}
+
+			// Fallback: use material baseColorFactor if no vertex colors
+			if (!sourceColors) {
+				const baseColorFactor = material.getBaseColorFactor();
+				if (baseColorFactor && (baseColorFactor[0] !== 1 || baseColorFactor[1] !== 1 || baseColorFactor[2] !== 1 || baseColorFactor[3] !== 1)) {
+					// Expand single color to per-vertex array
+					sourceColors = new Float32Array(vertexCount * 4);
+					for (let i = 0; i < vertexCount; i++) {
+						sourceColors[i * 4] = baseColorFactor[0];
+						sourceColors[i * 4 + 1] = baseColorFactor[1];
+						sourceColors[i * 4 + 2] = baseColorFactor[2];
+						sourceColors[i * 4 + 3] = baseColorFactor[3];
+					}
+					debugLog(`    Using material baseColorFactor as vertex color: [${baseColorFactor.map(v => v.toFixed(2)).join(', ')}]`);
+				}
+			}
 		}
 
 		// Create and return mesh
 		const mesh = new GltfMesh();
-		mesh.create(renderer, positions, texCoords, indices, texture, normals);
+		mesh.create(renderer, positions, texCoords, indices, texture, normals, sourceColors);
 		return mesh;
 	}
 

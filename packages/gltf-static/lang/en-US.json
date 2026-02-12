@@ -38,6 +38,18 @@
 					"scale": {
 						"name": "Scale",
 						"desc": "Uniform scale factor for the model (applied on load)."
+					},
+					"use-built-in-model": {
+						"name": "Use Built-in Model",
+						"desc": "When enabled, uses a built-in primitive model instead of the model URL."
+					},
+					"built-in-model-type": {
+						"name": "Built-in Model",
+						"desc": "Select which built-in primitive to use.",
+						"items": {
+							"cube": "Cube",
+							"sphere": "Sphere"
+						}
 					}
 				},
 				"aceCategories": {
@@ -133,11 +145,6 @@
 							}
 						}
 					},
-					"is-lighting-baked": {
-						"list-name": "Is lighting baked",
-						"display-text": "{my} lighting is baked",
-						"description": "True if the model has baked (frozen) lighting."
-					},
 					"has-bone": {
 						"list-name": "Has bone",
 						"display-text": "{my} has bone [b]{0}[/b]",
@@ -148,6 +155,11 @@
 								"desc": "The bone/node name to check for."
 							}
 						}
+					},
+					"is-lighting-baked": {
+						"list-name": "Is lighting baked",
+						"display-text": "{my} lighting is baked",
+						"description": "True if this model has baked lighting (static lighting pre-computed for performance)."
 					}
 				},
 				"actions": {
@@ -404,21 +416,6 @@
 							}
 						}
 					},
-					"bake-lighting": {
-						"list-name": "Bake lighting",
-						"display-text": "{my} bake lighting",
-						"description": "Freeze lighting calculation for the entire model. Maximum performance for static scenes."
-					},
-					"unbake-lighting": {
-						"list-name": "Unbake lighting",
-						"display-text": "{my} unbake lighting",
-						"description": "Re-enable dynamic lighting for the model. May require model reload if memory was freed."
-					},
-					"refresh-and-bake-lighting": {
-						"list-name": "Refresh and bake lighting",
-						"display-text": "{my} refresh and bake lighting",
-						"description": "Recalculate lighting with current scene, then freeze. Use when lights changed."
-					},
 					"set-animation-frame-skip": {
 						"list-name": "Set animation frame skip",
 						"display-text": "{my} set animation frame skip to [b]{0}[/b]",
@@ -478,6 +475,21 @@
 								"desc": "Maximum frames to skip at max distance (default 5). Higher = better performance, choppier animation."
 							}
 						}
+					},
+					"bake-lighting": {
+						"list-name": "Bake lighting",
+						"display-text": "{my} bake lighting",
+						"description": "Bake current lighting into vertex colors for improved performance. Static models will use these baked colors instead of per-frame lighting calculations."
+					},
+					"unbake-lighting": {
+						"list-name": "Unbake lighting",
+						"display-text": "{my} unbake lighting",
+						"description": "Remove baked lighting and return to dynamic per-frame lighting calculations."
+					},
+					"refresh-and-bake-lighting": {
+						"list-name": "Refresh and bake lighting",
+						"display-text": "{my} refresh and bake lighting",
+						"description": "Recalculate lighting from current light sources and bake into vertex colors."
 					}
 				},
 				"expressions": {

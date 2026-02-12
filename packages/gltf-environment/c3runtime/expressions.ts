@@ -55,6 +55,11 @@ C3.Plugins.GltfEnvironment.Exps =
 	GroundColorB(this: SDKInstanceClass): number
 	{
 		return this._GroundColorB();
+	},
+
+	ColorBlendMode(this: SDKInstanceClass): string
+	{
+		return this._ColorBlendMode();
 	}
 };
 

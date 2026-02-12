@@ -75,6 +75,12 @@ export interface SpecularConfig {
 	debugBlue?: boolean;
 }
 
+// ============================================================================
+// Color Blend Mode for Vertex Colors
+// ============================================================================
+
+export type ColorBlendMode = 'none' | 'multiply' | 'screen' | 'overlay' | 'add';
+
 declare global {
 	var gltfLights: DirectionalLight[];
 	var gltfSpotLights: SpotLight[];
@@ -83,6 +89,7 @@ declare global {
 	var gltfHemisphereLight: HemisphereLight;
 	var gltfSpecular: SpecularConfig;
 	var gltfLightingVersion: number;
+	var gltfColorBlendMode: ColorBlendMode;
 }
 
 // Initialize global light state if not exists
@@ -110,6 +117,11 @@ if (!globalThis.gltfSpecular) {
 		shininess: 32.0,    // Default specular power
 		intensity: 1.0      // Default specular intensity
 	};
+}
+
+// Initialize color blend mode (for vertex color + lighting blending)
+if (!globalThis.gltfColorBlendMode) {
+	globalThis.gltfColorBlendMode = 'overlay';
 }
 
 // ============================================================================
@@ -465,6 +477,32 @@ export function getSpecularConfig(): SpecularConfig {
 }
 
 // ============================================================================
+// Script Interface - Color Blend Mode
+// ============================================================================
+
+/**
+ * Set the color blend mode for combining vertex colors with lighting.
+ * - 'none': Lighting only, ignore vertex colors
+ * - 'multiply': lighting * vertexColor (vertex colors tint the lit surface)
+ * - 'screen': 1 - (1-lighting) * (1-vertexColor) (brightening blend)
+ * - 'overlay': Combines multiply and screen based on lighting value
+ * - 'add': lighting + vertexColor (vertex colors add glow/emission)
+ */
+export function setColorBlendMode(mode: ColorBlendMode): void {
+	if (globalThis.gltfColorBlendMode !== mode) {
+		globalThis.gltfColorBlendMode = mode;
+		_markDirty();
+	}
+}
+
+/**
+ * Get the current color blend mode.
+ */
+export function getColorBlendMode(): ColorBlendMode {
+	return globalThis.gltfColorBlendMode ?? 'overlay';
+}
+
+// ============================================================================
 // Script Interface - Spotlight Management
 // ============================================================================
 
@@ -711,7 +749,8 @@ export function calculateMeshLighting(
 	outColors: Float32Array,
 	vertexCount: number,
 	modelMatrix?: Float32Array | null,
-	cameraPosition?: Float32Array | null
+	cameraPosition?: Float32Array | null,
+	sourceColors?: Float32Array | null
 ): void {
 	const ambient = globalThis.gltfAmbientLight;
 	const lights = globalThis.gltfLights;
@@ -966,6 +1005,33 @@ export function calculateMeshLighting(
 						}
 					}
 				}
+			}
+		}
+
+		// Apply blend with source vertex colors
+		if (sourceColors) {
+			const srcR = sourceColors[off4];
+			const srcG = sourceColors[off4 + 1];
+			const srcB = sourceColors[off4 + 2];
+
+			switch (globalThis.gltfColorBlendMode) {
+				case 'multiply':
+					r *= srcR; g *= srcG; b *= srcB;
+					break;
+				case 'screen':
+					r = 1 - (1 - r) * (1 - srcR);
+					g = 1 - (1 - g) * (1 - srcG);
+					b = 1 - (1 - b) * (1 - srcB);
+					break;
+				case 'overlay':
+					r = r < 0.5 ? 2 * r * srcR : 1 - 2 * (1 - r) * (1 - srcR);
+					g = g < 0.5 ? 2 * g * srcG : 1 - 2 * (1 - g) * (1 - srcG);
+					b = b < 0.5 ? 2 * b * srcB : 1 - 2 * (1 - b) * (1 - srcB);
+					break;
+				case 'add':
+					r += srcR; g += srcG; b += srcB;
+					break;
+				// 'none': no blending, lighting only
 			}
 		}
 

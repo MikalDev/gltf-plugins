@@ -1,10 +1,14 @@
 // Lighting API type (exposed by glTF Static via globalThis.GltfBundle.Lighting)
+type ColorBlendMode = 'none' | 'multiply' | 'screen' | 'overlay' | 'add';
+
 interface LightingAPI {
 	setAmbientLight(r: number, g: number, b: number): void;
 	setHemisphereLightEnabled(enabled: boolean): void;
 	setHemisphereLightSkyColor(r: number, g: number, b: number): void;
 	setHemisphereLightGroundColor(r: number, g: number, b: number): void;
 	setHemisphereLightIntensity(intensity: number): void;
+	setColorBlendMode(mode: ColorBlendMode): void;
+	getColorBlendMode(): ColorBlendMode;
 }
 
 declare global {
@@ -55,6 +59,13 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
 		}
 
 		this._updateGlobalEnvironment();
+
+		// Set default color blend mode to overlay on start
+		const Lighting = getLightingAPI();
+		if (Lighting)
+		{
+			Lighting.setColorBlendMode('overlay');
+		}
 
 		// Enable ticking so _tick() is called each frame
 		this._setTicking(true);
@@ -155,6 +166,17 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
 		this._updateGlobalEnvironment();
 	}
 
+	_SetColorBlendMode(mode: number): void
+	{
+		const modes: ColorBlendMode[] = ['none', 'multiply', 'screen', 'overlay', 'add'];
+		const blendMode = modes[mode] ?? 'overlay';
+		const Lighting = getLightingAPI();
+		if (Lighting)
+		{
+			Lighting.setColorBlendMode(blendMode);
+		}
+	}
+
 	// === Conditions ===
 
 	_IsHemisphereEnabled(): boolean
@@ -217,6 +239,12 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
 	_GroundColorB(): number
 	{
 		return Math.round(this._groundColor[2] * 255);
+	}
+
+	_ColorBlendMode(): string
+	{
+		const Lighting = getLightingAPI();
+		return Lighting ? Lighting.getColorBlendMode() : 'overlay';
 	}
 
 	// === Save/Load ===

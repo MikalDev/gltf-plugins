@@ -26,6 +26,7 @@ export class GltfMesh {
 	private _originalPositions: Float32Array | null = null;
 	private _originalNormals: Float32Array | null = null;
 	private _transformedNormals: Float32Array | null = null;
+	private _sourceColors: Float32Array | null = null;
 	private _vertexCount: number = 0;
 	private _hasNormals: boolean = false;
 
@@ -162,7 +163,8 @@ export class GltfMesh {
 		texCoords: Float32Array | null,
 		indices: Uint16Array | Uint32Array,
 		texture: ITexture | null,
-		normals?: Float32Array | null
+		normals?: Float32Array | null,
+		sourceColors?: Float32Array | null
 	): void {
 		this._vertexCount = positions.length / 3;
 		const indexCount = indices.length;
@@ -216,6 +218,23 @@ export class GltfMesh {
 		// Fill vertex colors with white (unlit rendering)
 		this._meshData.fillColor(1, 1, 1, 1);
 		this._meshData.markDataChanged("colors", 0, this._vertexCount);
+
+		// Store source vertex colors for lighting blend
+		if (sourceColors) {
+			if (sourceColors.length === this._vertexCount * 4) {
+				// RGBA format
+				this._sourceColors = new Float32Array(sourceColors);
+			} else if (sourceColors.length === this._vertexCount * 3) {
+				// RGB only, expand to RGBA
+				this._sourceColors = new Float32Array(this._vertexCount * 4);
+				for (let i = 0; i < this._vertexCount; i++) {
+					this._sourceColors[i * 4] = sourceColors[i * 3];
+					this._sourceColors[i * 4 + 1] = sourceColors[i * 3 + 1];
+					this._sourceColors[i * 4 + 2] = sourceColors[i * 3 + 2];
+					this._sourceColors[i * 4 + 3] = 1.0;
+				}
+			}
+		}
 
 		this._texture = texture;
 	}
@@ -648,7 +667,8 @@ export class GltfMesh {
 			this._meshData.colors,
 			this._vertexCount,
 			modelMatrix,
-			cameraPosition
+			cameraPosition,
+			this._sourceColors
 		);
 
 		this._meshData.markDataChanged("colors", 0, this._vertexCount);
@@ -786,6 +806,11 @@ export class GltfMesh {
 	/** Get texture reference for debugging */
 	get texture(): ITexture | null {
 		return this._texture;
+	}
+
+	/** Get source vertex colors (from glTF or material baseColorFactor) */
+	get sourceColors(): Float32Array | null {
+		return this._sourceColors;
 	}
 
 	/**

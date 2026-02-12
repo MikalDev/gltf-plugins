@@ -241,6 +241,5 @@ C3.Plugins.GltfStatic.Exps =
 	BBoxScale(this: SDKInstanceClass): number
 	{
 		return this._getBBoxScale();
-	},
-
+	}
 };

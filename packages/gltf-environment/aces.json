@@ -101,6 +101,24 @@
 						"type": "number"
 					}
 				]
+			},
+			{
+				"id": "set-color-blend-mode",
+				"scriptName": "SetColorBlendMode",
+				"highlight": false,
+				"params": [
+					{
+						"id": "mode",
+						"type": "combo",
+						"items": [
+							"none",
+							"multiply",
+							"screen",
+							"overlay",
+							"add"
+						]
+					}
+				]
 			}
 		],
 		"expressions": [
@@ -158,6 +176,11 @@
 				"id": "ground-color-b",
 				"expressionName": "GroundColorB",
 				"returnType": "number"
+			},
+			{
+				"id": "color-blend-mode",
+				"expressionName": "ColorBlendMode",
+				"returnType": "string"
 			}
 		]
 	}
