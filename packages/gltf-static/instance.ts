@@ -2,12 +2,214 @@ import type { EditorSpotlight, EditorEnvironment } from "@gltf-plugins/shared-ty
 
 const PLUGIN_CLASS = SDK.Plugins.GltfStatic;
 
+// ============================================================================
+// Inline Built-in Model Generation (for editor - runtime has its own copy)
+// ============================================================================
+
+type BuiltinModelType = "cube" | "sphere";
+
+const FACE_COLORS = {
+	posX: [1.0, 0.98, 0.95, 1.0],
+	negX: [0.95, 0.98, 1.0, 1.0],
+	posY: [1.0, 1.0, 1.0, 1.0],
+	negY: [0.95, 0.95, 0.95, 1.0],
+	posZ: [0.98, 1.0, 0.95, 1.0],
+	negZ: [0.95, 0.97, 1.0, 1.0],
+};
+
+interface BuiltinMeshData {
+	positions: number[];
+	normals: number[];
+	texCoords: number[];
+	colors: number[];
+	indices: number[];
+}
+
+function generateCubeData(): BuiltinMeshData {
+	const half = 5;
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	const faces: Array<{ normal: [number, number, number]; verts: Array<[number, number, number]>; colorKey: keyof typeof FACE_COLORS }> = [
+		{ normal: [1, 0, 0], verts: [[half, -half, -half], [half, half, -half], [half, half, half], [half, -half, half]], colorKey: "posX" },
+		{ normal: [-1, 0, 0], verts: [[-half, -half, half], [-half, half, half], [-half, half, -half], [-half, -half, -half]], colorKey: "negX" },
+		{ normal: [0, 1, 0], verts: [[-half, half, -half], [-half, half, half], [half, half, half], [half, half, -half]], colorKey: "posY" },
+		{ normal: [0, -1, 0], verts: [[-half, -half, half], [-half, -half, -half], [half, -half, -half], [half, -half, half]], colorKey: "negY" },
+		{ normal: [0, 0, 1], verts: [[-half, -half, half], [half, -half, half], [half, half, half], [-half, half, half]], colorKey: "posZ" },
+		{ normal: [0, 0, -1], verts: [[half, -half, -half], [-half, -half, -half], [-half, half, -half], [half, half, -half]], colorKey: "negZ" }
+	];
+	const faceUVs: Array<[number, number]> = [[0, 1], [0, 0], [1, 0], [1, 1]];
+	let vi = 0;
+	for (const face of faces) {
+		const color = FACE_COLORS[face.colorKey];
+		for (let i = 0; i < 4; i++) {
+			positions.push(...face.verts[i]);
+			normals.push(...face.normal);
+			texCoords.push(...faceUVs[i]);
+			colors.push(...color);
+		}
+		indices.push(vi, vi + 1, vi + 2, vi, vi + 2, vi + 3);
+		vi += 4;
+	}
+	return { positions, normals, texCoords, colors, indices };
+}
+
+function generateSphereData(): BuiltinMeshData {
+	const radius = 5;
+	const widthSegments = 24;
+	const heightSegments = 16;
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	// Generate vertices
+	for (let y = 0; y <= heightSegments; y++) {
+		const v = y / heightSegments;
+		const phi = v * Math.PI; // 0 to PI (top to bottom)
+
+		for (let x = 0; x <= widthSegments; x++) {
+			const u = x / widthSegments;
+			const theta = u * Math.PI * 2; // 0 to 2PI
+
+			// Spherical to cartesian
+			const nx = Math.sin(phi) * Math.cos(theta);
+			const ny = Math.cos(phi);
+			const nz = Math.sin(phi) * Math.sin(theta);
+
+			positions.push(nx * radius, ny * radius, nz * radius);
+			normals.push(nx, ny, nz);
+			texCoords.push(u, v);
+
+			// Color based on dominant normal direction (like cube faces)
+			let color: number[];
+			const absX = Math.abs(nx);
+			const absY = Math.abs(ny);
+			const absZ = Math.abs(nz);
+
+			if (absY >= absX && absY >= absZ) {
+				color = ny > 0 ? FACE_COLORS.posY : FACE_COLORS.negY;
+			} else if (absX >= absZ) {
+				color = nx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+			} else {
+				color = nz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+			}
+			colors.push(...color);
+		}
+	}
+
+	// Generate indices
+	for (let y = 0; y < heightSegments; y++) {
+		for (let x = 0; x < widthSegments; x++) {
+			const a = y * (widthSegments + 1) + x;
+			const b = a + widthSegments + 1;
+			const c = a + 1;
+			const d = b + 1;
+
+			// Two triangles per quad (except at poles)
+			if (y !== 0) {
+				indices.push(a, b, c);
+			}
+			if (y !== heightSegments - 1) {
+				indices.push(c, b, d);
+			}
+		}
+	}
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	let result = "";
+	for (let i = 0; i < bytes.length; i += 3) {
+		const b1 = bytes[i], b2 = bytes[i + 1] ?? 0, b3 = bytes[i + 2] ?? 0;
+		result += chars[b1 >> 2];
+		result += chars[((b1 & 3) << 4) | (b2 >> 4)];
+		result += i + 1 < bytes.length ? chars[((b2 & 15) << 2) | (b3 >> 6)] : "=";
+		result += i + 2 < bytes.length ? chars[b3 & 63] : "=";
+	}
+	return result;
+}
+
+function buildGltfJson(mesh: BuiltinMeshData, name: string): string {
+	const pos = new Float32Array(mesh.positions);
+	const norm = new Float32Array(mesh.normals);
+	const uv = new Float32Array(mesh.texCoords);
+	const col = new Float32Array(mesh.colors);
+	const idx = new Uint16Array(mesh.indices);
+	let minX = Infinity, minY = Infinity, minZ = Infinity;
+	let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+	for (let i = 0; i < pos.length; i += 3) {
+		minX = Math.min(minX, pos[i]); maxX = Math.max(maxX, pos[i]);
+		minY = Math.min(minY, pos[i+1]); maxY = Math.max(maxY, pos[i+1]);
+		minZ = Math.min(minZ, pos[i+2]); maxZ = Math.max(maxZ, pos[i+2]);
+	}
+	const posB = new Uint8Array(pos.buffer);
+	const normB = new Uint8Array(norm.buffer);
+	const uvB = new Uint8Array(uv.buffer);
+	const colB = new Uint8Array(col.buffer);
+	const idxB = new Uint8Array(idx.buffer);
+	const total = posB.length + normB.length + uvB.length + colB.length + idxB.length;
+	const buf = new Uint8Array(total);
+	let off = 0;
+	buf.set(posB, off); const posOff = off; off += posB.length;
+	buf.set(normB, off); const normOff = off; off += normB.length;
+	buf.set(uvB, off); const uvOff = off; off += uvB.length;
+	buf.set(colB, off); const colOff = off; off += colB.length;
+	buf.set(idxB, off); const idxOff = off;
+	const bufUri = `data:application/octet-stream;base64,${uint8ArrayToBase64(buf)}`;
+	const vertCount = pos.length / 3;
+	return JSON.stringify({
+		asset: { version: "2.0" },
+		scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, name }],
+		meshes: [{ name, primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2, COLOR_0: 3 }, indices: 4, material: 0 }] }],
+		accessors: [
+			{ bufferView: 0, componentType: 5126, count: vertCount, type: "VEC3", min: [minX, minY, minZ], max: [maxX, maxY, maxZ] },
+			{ bufferView: 1, componentType: 5126, count: vertCount, type: "VEC3" },
+			{ bufferView: 2, componentType: 5126, count: vertCount, type: "VEC2" },
+			{ bufferView: 3, componentType: 5126, count: vertCount, type: "VEC4" },
+			{ bufferView: 4, componentType: 5123, count: idx.length, type: "SCALAR" }
+		],
+		bufferViews: [
+			{ buffer: 0, byteOffset: posOff, byteLength: posB.length },
+			{ buffer: 0, byteOffset: normOff, byteLength: normB.length },
+			{ buffer: 0, byteOffset: uvOff, byteLength: uvB.length },
+			{ buffer: 0, byteOffset: colOff, byteLength: colB.length },
+			{ buffer: 0, byteOffset: idxOff, byteLength: idxB.length }
+		],
+		buffers: [{ uri: bufUri, byteLength: total }],
+		materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1 } }]
+	});
+}
+
+let _cubeJson: string | null = null;
+let _sphereJson: string | null = null;
+
+function getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
+	let json: string;
+	if (type === "cube") {
+		json = _cubeJson ??= buildGltfJson(generateCubeData(), "BuiltinCube");
+	} else {
+		json = _sphereJson ??= buildGltfJson(generateSphereData(), "BuiltinSphere");
+	}
+	return new TextEncoder().encode(json).buffer;
+}
+
+// ============================================================================
+
 // Property indices (matching plugin.ts order, excluding link properties)
 const PROP_MODEL_URL = "model-url";
 const PROP_ROTATION_X = "rotation-x";
 const PROP_ROTATION_Y = "rotation-y";
 const PROP_ROTATION_Z = "rotation-z";
 const PROP_SCALE = "scale";
+const PROP_USE_BUILTIN = "use-built-in-model";
+const PROP_BUILTIN_TYPE = "built-in-model-type";
 
 // Degrees to radians conversion
 const DEG_TO_RAD = Math.PI / 180;
@@ -77,6 +279,7 @@ interface GltfMeshPrimitive {
 interface GltfImage {
 	mimeType?: string;
 	bufferView?: number;
+	uri?: string;
 }
 
 interface GltfTexture {
@@ -109,7 +312,7 @@ interface GltfScene {
 interface GltfDocument {
 	accessors?: GltfAccessor[];
 	bufferViews?: GltfBufferView[];
-	buffers?: { byteLength: number }[];
+	buffers?: { byteLength: number; uri?: string }[];
 	meshes?: GltfMesh[];
 	nodes?: GltfNode[];
 	scenes?: GltfScene[];
@@ -318,13 +521,25 @@ class EditorGltfModel {
 		const jsonString = new TextDecoder().decode(buffer);
 		const jsonData = JSON.parse(jsonString) as GltfDocument;
 
-		// Load external buffers if needed
+		// Load buffers (data URIs or external)
 		const buffers: ArrayBuffer[] = [];
 		if (jsonData.buffers) {
-			for (const bufferDef of jsonData.buffers) {
-				// For now, assume embedded data or single buffer in GLB
-				// External buffer loading would go here
-				modelLoadWarn("External buffer loading not implemented, skipping");
+			for (let i = 0; i < jsonData.buffers.length; i++) {
+				const bufferDef = jsonData.buffers[i];
+				if (bufferDef.uri && bufferDef.uri.startsWith("data:")) {
+					// Handle data URI buffers
+					const response = await fetch(bufferDef.uri);
+					const arrayBuffer = await response.arrayBuffer();
+					buffers[i] = arrayBuffer;
+					modelLoadLog(`Buffer ${i}: loaded from data URI (${arrayBuffer.byteLength} bytes)`);
+				} else if (bufferDef.uri) {
+					// External buffer - not supported yet
+					modelLoadWarn(`Buffer ${i}: external buffer loading not implemented, skipping`);
+					buffers[i] = new ArrayBuffer(0);
+				} else {
+					// No URI - might be embedded in GLB binary chunk
+					buffers[i] = new ArrayBuffer(0);
+				}
 			}
 		}
 
@@ -365,29 +580,41 @@ class EditorGltfModel {
 		for (let i = 0; i < doc.images.length; i++) {
 			const image = doc.images[i];
 
-			if (image.bufferView === undefined) {
-				modelLoadWarn(`Image ${i}: no bufferView (external images not supported)`);
-				continue;
-			}
-
 			try {
-				const bufferView = doc.bufferViews?.[image.bufferView];
-				if (!bufferView) {
-					modelLoadWarn(`Image ${i}: bufferView not found`);
+				let blob: Blob;
+
+				// Handle data URI images (e.g., "data:image/png;base64,...")
+				if (image.uri && image.uri.startsWith("data:")) {
+					const response = await fetch(image.uri);
+					blob = await response.blob();
+					modelLoadLog(`Image ${i}: loaded from data URI`);
+				}
+				// Handle bufferView images (embedded in binary buffer)
+				else if (image.bufferView !== undefined) {
+					const bufferView = doc.bufferViews?.[image.bufferView];
+					if (!bufferView) {
+						modelLoadWarn(`Image ${i}: bufferView not found`);
+						this._images[i] = null as unknown as ImageBitmap;
+						continue;
+					}
+
+					const buffer = buffers[bufferView.buffer];
+					if (!buffer) {
+						modelLoadWarn(`Image ${i}: buffer not found`);
+						this._images[i] = null as unknown as ImageBitmap;
+						continue;
+					}
+
+					const byteOffset = bufferView.byteOffset || 0;
+					const imageData = new Uint8Array(buffer, byteOffset, bufferView.byteLength);
+					blob = new Blob([imageData], { type: image.mimeType || 'image/png' });
+				}
+				else {
+					modelLoadWarn(`Image ${i}: no bufferView or data URI (external images not supported)`);
 					this._images[i] = null as unknown as ImageBitmap;
 					continue;
 				}
 
-				const buffer = buffers[bufferView.buffer];
-				if (!buffer) {
-					modelLoadWarn(`Image ${i}: buffer not found`);
-					this._images[i] = null as unknown as ImageBitmap;
-					continue;
-				}
-
-				const byteOffset = bufferView.byteOffset || 0;
-				const imageData = new Uint8Array(buffer, byteOffset, bufferView.byteLength);
-				const blob = new Blob([imageData], { type: image.mimeType || 'image/png' });
 				const imageBitmap = await createImageBitmap(blob);
 				this._images[i] = imageBitmap;
 				modelLoadLog(`Image ${i}: ${imageBitmap.width}x${imageBitmap.height}`);
@@ -801,10 +1028,25 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		this._transformedMeshes = [];
 	}
 
+	/**
+	 * Get the URL to load based on property settings.
+	 * Built-in model takes priority over model URL.
+	 */
+	_getModelUrlToLoad(): string
+	{
+		const useBuiltin = this._inst.GetPropertyValue(PROP_USE_BUILTIN) as boolean;
+		if (useBuiltin)
+		{
+			const builtinType = this._inst.GetPropertyValue(PROP_BUILTIN_TYPE) as string;
+			return builtinType === "cube" ? "builtin:cube" : "builtin:sphere";
+		}
+		return this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
+	}
+
 	OnCreate(): void
 	{
 		// Check if model URL is set and load if so
-		const modelUrl = this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
+		const modelUrl = this._getModelUrlToLoad();
 		if (modelUrl && !this._isLoading)
 		{
 			this._loadModel(modelUrl);
@@ -814,7 +1056,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	OnPlacedInLayout(): void
 	{
 		// Load model if URL is set
-		const modelUrl = this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
+		const modelUrl = this._getModelUrlToLoad();
 		if (modelUrl && !this._model && !this._isLoading)
 		{
 			this._loadModel(modelUrl);
@@ -865,18 +1107,31 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	}
 
 	/**
-	 * Perform the actual model load from project file.
+	 * Perform the actual model load from project file or built-in data.
 	 */
 	async _doModelLoad(url: string): Promise<EditorGltfModel>
 	{
-		const projectFile = this.GetProject().GetProjectFileByExportPath(url);
-		if (!projectFile)
-		{
-			throw new Error(`Project file not found: ${url}`);
-		}
+		let arrayBuffer: ArrayBuffer;
 
-		const blob = projectFile.GetBlob();
-		const arrayBuffer = await blob.arrayBuffer();
+		// Handle built-in models
+		if (url.startsWith("builtin:"))
+		{
+			const type = url.replace("builtin:", "") as BuiltinModelType;
+			arrayBuffer = getBuiltinModelArrayBuffer(type);
+			modelLoadLog("Loading built-in model:", type);
+		}
+		else
+		{
+			// Load from project file
+			const projectFile = this.GetProject().GetProjectFileByExportPath(url);
+			if (!projectFile)
+			{
+				throw new Error(`Project file not found: ${url}`);
+			}
+
+			const blob = projectFile.GetBlob();
+			arrayBuffer = await blob.arrayBuffer();
+		}
 
 		const model = new EditorGltfModel();
 		await model.loadFromBuffer(arrayBuffer, url);
@@ -1313,24 +1568,13 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		else
 		{
 			// Fallback: draw placeholder while loading or if no model
-			const objectType = this.GetObjectType();
-			const image = objectType.GetImage();
-			const texture = image.GetCachedWebGLTexture();
-
-			if (texture)
+			// Just draw a simple colored rectangle - avoid Quad3 which requires valid texRect
+			iRenderer.SetColorFillMode();
+			iRenderer.SetColorRgba(0.25, 0.25, 0.5, 1);
+			const quad = this._inst.GetQuad();
+			if (quad)
 			{
-				// Draw the textured quad
-				iRenderer.SetTextureFillMode();
-				iRenderer.SetTexture(texture);
-				iRenderer.SetColor(this._inst.GetColor());
-				iRenderer.Quad3(this._inst.GetQuad(), image.GetTexRect());
-			}
-			else
-			{
-				// Draw a placeholder rectangle when no texture is available
-				iRenderer.SetColorFillMode();
-				iRenderer.SetColorRgba(0.25, 0.25, 0.5, 1);
-				iRenderer.Quad(this._inst.GetQuad());
+				iRenderer.Quad(quad);
 			}
 		}
 	}
@@ -1360,13 +1604,27 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 
 	OnPropertyChanged(id: string, value: EditorPropertyValueType): void
 	{
-		// Reload model if URL changed
+		// Reload model if URL changed (only if not using built-in model)
 		if (id === PROP_MODEL_URL)
 		{
-			const url = value as string;
-			if (url !== this._lastModelUrl)
+			const useBuiltin = this._inst.GetPropertyValue(PROP_USE_BUILTIN) as boolean;
+			if (!useBuiltin)
 			{
-				this._loadModel(url);
+				const url = value as string;
+				if (url !== this._lastModelUrl)
+				{
+					this._loadModel(url);
+				}
+			}
+		}
+
+		// Handle built-in model property changes
+		if (id === PROP_USE_BUILTIN || id === PROP_BUILTIN_TYPE)
+		{
+			const newUrl = this._getModelUrlToLoad();
+			if (newUrl !== this._lastModelUrl)
+			{
+				this._loadModel(newUrl);
 			}
 		}
 
