@@ -45,6 +45,7 @@ function debugError(...args: unknown[]): void {
 
 function modelLoadLog(...args: unknown[]): void {
 	if (globalThis.gltfDebug) console.log(LOG_PREFIX, ...args);
+	if (true) console.log(LOG_PREFIX, ...args);
 }
 
 function modelLoadWarn(...args: unknown[]): void {
@@ -62,9 +63,7 @@ const PROP_USE_BUILTIN = 5;
 const PROP_BUILTIN_TYPE = 6;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
-const tempMatrix = mat4.create();
 const tempVec = vec3.create();
-const savedMV = new Float32Array(16);
 const modelRotationMatrix = mat4.create(); // For lighting normal transformation
 
 // Degrees to radians conversion factor
@@ -89,6 +88,16 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// This represents the 3D rotation (replaces rotationX/Y/Z when set directly)
 	_rotationQuat: Float32Array = new Float32Array([0, 0, 0, 1]); // Identity quaternion
 
+	// Instance TRS matrix for CPU-side vertex transformation
+	_instanceMatrix: Float32Array = mat4.create() as unknown as Float32Array;
+	_instanceMatrixDirty: boolean = true;
+
+	// Last position tracking for dirty detection (C3 position changes don't have setters we can override)
+	_lastX: number = 0;
+	_lastY: number = 0;
+	_lastZ: number = 0;
+	_lastAngle: number = 0;
+
 	// glTF model
 	_model: GltfModelType | null = null;
 	_isLoading: boolean = false;
@@ -96,8 +105,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Animation controller (created when model has skinning data)
 	_animationController: AnimationControllerType | null = null;
 	_skinnedMeshIndices: number[] = [];  // Maps animation controller mesh index to model mesh index
-
-	_realRuntime: unknown
 
 	// Animation frame skip (performance optimization)
 	_animationFrameSkip: number = 0;      // How many frames to skip (0 = update every frame)
@@ -170,7 +177,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				this._loadModel(this._modelUrl);
 			}
 		}
-		this._realRuntime = (globalThis as any).badlandsR;
 	}
 
 	_release(): void
@@ -210,41 +216,89 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	}
 
 	/**
-	 * Build model-view matrix: C3_MV * T(position) * R * S * T(-localCenter)
-	 * All TRS is handled on the GPU. Vertices are never modified after initial upload.
-	 * T(-localCenter) shifts model so its center is at origin,
-	 * then S scales, R rotates (both around origin), then T moves to world position.
+	 * Build instance TRS matrix: T(position) * R * S * T(-localCenter)
+	 * Same as _buildModelViewMatrix but WITHOUT C3's camera transform.
+	 * Used for CPU-side vertex transformation.
 	 */
-	_buildModelViewMatrix(savedMatrix: Float32Array): Float32Array
+	_buildInstanceMatrix(): Float32Array
 	{
-		mat4.identity(tempMatrix);
+		// KISS: Early return if no model - don't crash on null dereference
+		if (!this._model)
+		{
+			return this._instanceMatrix;
+		}
+
+		mat4.identity(this._instanceMatrix);
 
 		// 1. T(position): translate to instance world position
 		vec3.set(tempVec, this.x, this.y, this.totalZElevation);
-		mat4.translate(tempMatrix, tempMatrix, tempVec);
+		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		// 2. R: apply C3 angle (Z rotation) first, then quaternion rotation
 		if (this.angle !== 0)
 		{
-			mat4.rotateZ(tempMatrix, tempMatrix, this.angle);
+			mat4.rotateZ(this._instanceMatrix, this._instanceMatrix, this.angle);
 		}
 
-		// Apply quaternion rotation (replaces individual X/Y/Z euler rotations)
+		// Apply quaternion rotation
 		const rotMat = mat4.create();
 		mat4.fromQuat(rotMat, this._rotationQuat);
-		mat4.multiply(tempMatrix, tempMatrix, rotMat);
+		mat4.multiply(this._instanceMatrix, this._instanceMatrix, rotMat);
 
 		// 3. S: scale
 		vec3.set(tempVec, this._scaleX, this._scaleY, this._scaleZ);
-		mat4.scale(tempMatrix, tempMatrix, tempVec);
+		mat4.scale(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		// 4. T(-localCenter): shift model so its center is at origin
-		const lc = this._model!.localCenter;
+		const lc = this._model.localCenter;
 		vec3.set(tempVec, -lc[0], -lc[1], -lc[2]);
-		mat4.translate(tempMatrix, tempMatrix, tempVec);
+		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
-		// Combine with C3's model-view (camera transform)
-		return mat4.multiply(tempMatrix, savedMatrix, tempMatrix) as Float32Array;
+		return this._instanceMatrix;
+	}
+
+	/**
+	 * Mark instance transform as dirty, triggering CPU-side vertex transform on next tick.
+	 */
+	_markTransformDirty(): void
+	{
+		this._instanceMatrixDirty = true;
+	}
+
+	/**
+	 * Pre-multiply instance TRS matrix into each bone matrix.
+	 * This applies object position/rotation/scale to skinned vertices efficiently:
+	 * - Instead of transforming M vertices by instanceMatrix after skinning
+	 * - We multiply N bone matrices by instanceMatrix (N << M typically)
+	 *
+	 * Math: finalPos = instanceMatrix * Σ(weight_i * boneMatrix_i * bindPos)
+	 *                = Σ(weight_i * (instanceMatrix * boneMatrix_i) * bindPos)
+	 *
+	 * @param boneMatrices Original bone matrices (16 floats per bone, flattened)
+	 * @returns New array with instance matrix pre-multiplied into each bone
+	 */
+	_applyInstanceMatrixToBones(boneMatrices: Float32Array): Float32Array
+	{
+		const boneCount = boneMatrices.length / 16;
+		const result = new Float32Array(boneMatrices.length);
+		const boneMat = mat4.create();
+		const outMat = mat4.create();
+
+		for (let i = 0; i < boneCount; i++)
+		{
+			const offset = i * 16;
+			// Copy bone matrix into temp (subarray can't be used directly with mat4.multiply output)
+			for (let j = 0; j < 16; j++)
+			{
+				boneMat[j] = boneMatrices[offset + j];
+			}
+			// Multiply: instanceMatrix * boneMatrix
+			mat4.multiply(outMat, this._instanceMatrix as unknown as Float32Array & number[], boneMat);
+			// Store result
+			result.set(outMat as unknown as Float32Array, offset);
+		}
+
+		return result;
 	}
 
 	/**
@@ -258,6 +312,30 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_tick(): void
 	{
 		if (!this._model?.isLoaded) return;
+
+		// Check for position/angle changes (C3 properties we can't override)
+		if (this.x !== this._lastX || this.y !== this._lastY ||
+			this.totalZElevation !== this._lastZ || this.angle !== this._lastAngle)
+		{
+			this._lastX = this.x;
+			this._lastY = this.y;
+			this._lastZ = this.totalZElevation;
+			this._lastAngle = this.angle;
+			this._instanceMatrixDirty = true;
+		}
+
+		// Update instance matrix if TRS changed (triggers CPU-side vertex transform)
+		// SOLID: Instance owns lightConfig, so we pass it here rather than model trying to access it
+		// KISS: Track if we did transform+lighting to avoid duplicate lighting work later
+		let didTransformWithLighting = false;
+		if (this._instanceMatrixDirty)
+		{
+			this._buildInstanceMatrix();
+			const lightConfig = this._buildLightConfig();
+			this._model.setInstanceMatrix(this._instanceMatrix, lightConfig);
+			this._instanceMatrixDirty = false;
+			didTransformWithLighting = lightConfig !== undefined;
+		}
 
 		// Always accumulate delta time for animation
 		const dt = this.runtime.dt;
@@ -302,9 +380,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Apply lighting only on update frames (when frameSkipIncludesLighting is true)
 		// On skipped frames, just render from existing GPU buffers for maximum performance
+		// KISS: Skip static mesh lighting if we already did transform+lighting this tick
 		if (shouldUpdate || !this._frameSkipIncludesLighting)
 		{
-			this._applyLightingToAllMeshes();
+			this._applyLightingToAllMeshes(didTransformWithLighting);
 		}
 
 		this.runtime.sdk.updateRender();
@@ -353,15 +432,17 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 * Apply lighting to all meshes. Uses dirty tracking internally.
 	 * Uses worker-based lighting for static meshes when available.
 	 * Skinned meshes get lighting via worker in _updateSkinnedMeshes - never use fallback.
+	 * @param skipStaticWithPool If true, skip static meshes registered with pool (already handled by transform+lighting)
 	 */
-	_applyLightingToAllMeshes(): void
+	_applyLightingToAllMeshes(skipStaticWithPool: boolean = false): void
 	{
 		if (!this._model) return;
 		const meshes = this._model.meshes;
 		if (!meshes) return;
 
-		// Use worker-based lighting for static meshes if available
-		if (this._model.hasWorkerStaticLighting)
+		// KISS: If we already did transform+lighting for static meshes this tick, skip them here
+		// This avoids duplicate work when both transform and lighting changed
+		if (this._model.hasWorkerStaticLighting && !skipStaticWithPool)
 		{
 			const lightConfig = this._buildLightConfig();
 			if (lightConfig)
@@ -369,7 +450,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				// Only queue non-baked meshes (worker filters internally via queueStaticLighting)
 				this._model.queueStaticLighting(lightConfig);
 			}
-			// Skinned meshes get lighting via queueSkinning in _updateSkinnedMeshes
+		}
+		// Skinned meshes get lighting via queueSkinning in _updateSkinnedMeshes
+		if (this._model.hasWorkerStaticLighting)
+		{
 			return;
 		}
 
@@ -509,7 +593,17 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if (this._model.hasWorkerSkinning)
 		{
 			const lightConfig = this._buildLightConfig();
-			this._model.queueSkinning(this._animationController.getBoneMatrices(), lightConfig);
+			// Pre-multiply instance TRS matrix into bone matrices for efficiency
+			// This applies object position/rotation/scale to skinned vertices
+			const boneMatrices = this._animationController.getBoneMatrices();
+			const transformedBoneMatrices = this._applyInstanceMatrixToBones(boneMatrices);
+			// Set modelMatrix to null since normals are already in world space
+			// (instance transform is baked into bone matrices)
+			if (lightConfig)
+			{
+				lightConfig.modelMatrix = null as unknown as Float32Array;
+			}
+			this._model.queueSkinning(transformedBoneMatrices, lightConfig);
 			return;
 		}
 
@@ -546,20 +640,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_draw(renderer: IRenderer): void
 	{
-		// Draw the glTF model if loaded
 		if (this._model?.isLoaded)
 		{
-			const glRenderer = (globalThis as any).badlandsR.GetWebGLRenderer();
-			savedMV.set(glRenderer._matMV);
-
-			// Build model-view with translation + rotation (vertices are origin-centered)
-			const combined = this._buildModelViewMatrix(savedMV);
-			glRenderer.SetModelViewMatrix(combined);
-
+			// Vertices are already in world space (transformed by worker)
+			// C3's camera matrix handles view/projection automatically
 			this._model.draw(renderer, this.runtime.tickCount);
-
-			// Restore previous matrix
-			glRenderer.SetModelViewMatrix(savedMV);
 		}
 		else
 		{
@@ -617,6 +702,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._updateQuatFromEuler();
 		// Update C3 bounds (rotation affects world-space AABB)
 		this._updateInstanceBounds();
+		// Mark for CPU-side vertex transform
+		this._markTransformDirty();
 	}
 
 	// ========================================================================
@@ -663,6 +750,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds (rotation affects world-space AABB)
 		this._updateInstanceBounds();
+
+		// Mark for CPU-side vertex transform
+		this._markTransformDirty();
 	}
 
 	/**
@@ -777,6 +867,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds when scale changes
 		this._updateInstanceBounds();
+
+		// Mark for CPU-side vertex transform
+		this._markTransformDirty();
 	}
 
 	// Set non-uniform scale (per axis)
@@ -788,6 +881,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds when Z scale changes
 		this._updateInstanceBounds();
+
+		// Mark for CPU-side vertex transform
+		this._markTransformDirty();
 	}
 
 	_isModelLoaded(): boolean
