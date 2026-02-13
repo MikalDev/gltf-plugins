@@ -1,11 +1,11 @@
 {
 	"languageTag": "en-US",
-	"fileDescription": "Strings for glTF Static plugin.",
+	"fileDescription": "Strings for Mesh plugin.",
 	"text": {
 		"plugins": {
 			"gltfstatic": {
-				"name": "glTF Static",
-				"description": "Load and render static glTF 3D models.",
+				"name": "Mesh",
+				"description": "Load and render 3D mesh models.",
 				"help-url": "https://github.com/MikalDev/gltf-static",
 				"category": "3D",
 				"properties": {

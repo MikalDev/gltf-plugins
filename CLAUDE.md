@@ -57,6 +57,16 @@ Lighting.setHemisphereLightEnabled(true);
 Lighting.setHemisphereLightSkyColor(0.5, 0.7, 1.0);
 ```
 
+## C3 3D Bounding Box Support (r472+)
+
+C3 now tracks 3D bounding boxes natively. Key APIs:
+
+- `IWorldInstance.getBoundingBox3d()` - returns `IAABB3D` (Axis Aligned Bounding Box 3D)
+- Expressions: `BBoxBack`, `BBoxFront`, `BBoxMidZ`
+- 3D shape supports `Origin Z` and negative depth
+
+For proper 3D frustum culling, use `getBoundingBox3d()` rather than just setting `depth`, `width`, `height`.
+
 ## Construct 3 Plugin Conventions
 
 ### ACE Return Values

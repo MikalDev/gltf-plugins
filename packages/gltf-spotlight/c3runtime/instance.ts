@@ -104,9 +104,9 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		if (!Lighting) return;  // glTF Static not loaded yet
 
 		// Create spotlight using Lighting API with direction from properties
-		// Use totalZElevation to account for parent hierarchy
+		// Use totalZ to account for parent hierarchy
 		this._lightId = Lighting.createSpotLight(
-			this.x, this.y, this.totalZElevation,
+			this.x, this.y, this.totalZ,
 			this._dirX, this._dirY, this._dirZ,
 			this._innerAngle, this._outerAngle,
 			1.0,  // falloffExponent
@@ -137,11 +137,11 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		}
 
 		// Update via Lighting API
-		// Use totalZElevation to account for parent hierarchy
+		// Use totalZ to account for parent hierarchy
 		Lighting.setSpotLightEnabled(this._lightId, this._enabled);
 		Lighting.setSpotLightColor(this._lightId, this._color[0], this._color[1], this._color[2]);
 		Lighting.setSpotLightIntensity(this._lightId, this._intensity);
-		Lighting.setSpotLightPosition(this._lightId, this.x, this.y, this.totalZElevation);
+		Lighting.setSpotLightPosition(this._lightId, this.x, this.y, this.totalZ);
 		Lighting.setSpotLightDirection(this._lightId, this._dirX, this._dirY, this._dirZ);
 		Lighting.setSpotLightConeAngles(this._lightId, this._innerAngle, this._outerAngle);
 		Lighting.setSpotLightRange(this._lightId, this._range);
@@ -152,7 +152,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		// Check if position changed or update is needed
 		const currentX = this.x;
 		const currentY = this.y;
-		const currentZ = this.totalZElevation;
+		const currentZ = this.totalZ;
 
 		const positionChanged = currentX !== this._lastX ||
 		                        currentY !== this._lastY ||

@@ -1,11 +1,11 @@
 {
 	"languageTag": "en-US",
-	"fileDescription": "Strings for glTF Spotlight plugin",
+	"fileDescription": "Strings for MeshLight plugin",
 	"text": {
 		"plugins": {
 			"gltfspotlight": {
-				"name": "glTF Spotlight",
-				"description": "Spotlight for glTF 3D models.",
+				"name": "MeshLight",
+				"description": "Spotlight for 3D mesh models.",
 				"help-url": "https://github.com/MikalDev/gltf-plugins",
 				"category": "3D",
 				"properties": {

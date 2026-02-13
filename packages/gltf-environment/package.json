@@ -1,6 +1,6 @@
 {
   "name": "@gltf-plugins/gltf-environment",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Construct 3 plugin for glTF environment/ambient editor lighting",
   "main": "c3runtime/plugin.js",
   "scripts": {

@@ -17,6 +17,9 @@ C3.Plugins.GltfEnvironment.Acts =
         },
         SetHemisphereIntensity(intensity) {
             this._SetHemisphereIntensity(intensity);
+        },
+        SetColorBlendMode(mode) {
+            this._SetColorBlendMode(mode);
         }
     };
 export {};

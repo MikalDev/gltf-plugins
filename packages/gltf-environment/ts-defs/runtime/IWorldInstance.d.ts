@@ -55,7 +55,7 @@ declare class IWorldInstance extends IInstance
 	offsetPosition(dx: number, dy: number): void;
 
 	zElevation: number;
-	readonly totalZElevation: number;
+	readonly totalZ: number;
 
 	originX: number;
 	originY: number;

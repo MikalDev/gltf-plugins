@@ -32,6 +32,11 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
             this._hemisphereIntensity = properties[PROP_HEMISPHERE_INTENSITY];
         }
         this._updateGlobalEnvironment();
+        // Set default color blend mode to overlay on start
+        const Lighting = getLightingAPI();
+        if (Lighting) {
+            Lighting.setColorBlendMode('overlay');
+        }
         // Enable ticking so _tick() is called each frame
         this._setTicking(true);
     }
@@ -103,6 +108,14 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
         this._needsUpdate = true;
         this._updateGlobalEnvironment();
     }
+    _SetColorBlendMode(mode) {
+        const modes = ['none', 'multiply', 'screen', 'overlay', 'add'];
+        const blendMode = modes[mode] ?? 'overlay';
+        const Lighting = getLightingAPI();
+        if (Lighting) {
+            Lighting.setColorBlendMode(blendMode);
+        }
+    }
     // === Conditions ===
     _IsHemisphereEnabled() {
         return this._hemisphereEnabled;
@@ -140,6 +153,10 @@ C3.Plugins.GltfEnvironment.Instance = class GltfEnvironmentInstance extends ISDK
     }
     _GroundColorB() {
         return Math.round(this._groundColor[2] * 255);
+    }
+    _ColorBlendMode() {
+        const Lighting = getLightingAPI();
+        return Lighting ? Lighting.getColorBlendMode() : 'overlay';
     }
     // === Save/Load ===
     _saveToJson() {

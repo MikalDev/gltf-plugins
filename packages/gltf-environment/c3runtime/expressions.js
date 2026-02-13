@@ -32,6 +32,9 @@ C3.Plugins.GltfEnvironment.Exps =
         },
         GroundColorB() {
             return this._GroundColorB();
+        },
+        ColorBlendMode() {
+            return this._ColorBlendMode();
         }
     };
 export {};
