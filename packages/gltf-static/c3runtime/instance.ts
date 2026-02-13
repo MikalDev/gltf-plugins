@@ -99,10 +99,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_realRuntime: unknown
 
-	// Debug stats
-	_drawCount: number = 0;
-	_lastDrawTime: number = 0;
-
 	// Animation frame skip (performance optimization)
 	_animationFrameSkip: number = 0;      // How many frames to skip (0 = update every frame)
 	_frameCounter: number = 0;            // Current frame counter
@@ -163,7 +159,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Auto-load model: built-in model takes priority over URL
 			if (this._useBuiltinModel)
 			{
-				const builtinUrl = this._builtinModelType === 0 ? "builtin:cube" : "builtin:sphere";
+				const builtinUrls = ["builtin:cube", "builtin:sphere", "builtin:capsule"];
+				const builtinUrl = builtinUrls[this._builtinModelType] ?? "builtin:cube";
 				modelLoadLog("Auto-loading built-in model:", builtinUrl);
 				this._loadModel(builtinUrl);
 			}
@@ -178,8 +175,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_release(): void
 	{
-		debugLog("_release called, total draws:", this._drawCount);
-
 		// Stop ticking
 		this._setTicking(false);
 		this._setTicking2(false);
@@ -551,12 +546,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_draw(renderer: IRenderer): void
 	{
-		const drawStart = performance.now();
-		this._drawCount++;
-
-		// Log first draw and every 60 frames (roughly every second at 60fps)
-		const shouldLog = this._drawCount === 1 || this._drawCount % 60 === 0;
-
 		// Draw the glTF model if loaded
 		if (this._model?.isLoaded)
 		{
@@ -571,20 +560,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 			// Restore previous matrix
 			glRenderer.SetModelViewMatrix(savedMV);
-
-			const drawTime = performance.now() - drawStart;
-			this._lastDrawTime = drawTime;
 		}
 		else
 		{
-			if (shouldLog)
-			{
-				debugLog(`Draw #${this._drawCount}: Model not loaded, drawing placeholder`, {
-					isLoading: this._isLoading,
-					hasModel: !!this._model
-				});
-			}
-
 			// Fallback: draw placeholder texture while model is loading
 			const imageInfo = this.objectType.getImageInfo();
 			const texture = imageInfo.getTexture(renderer);
@@ -637,6 +615,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._rotationZ = z;
 		// Keep quaternion in sync
 		this._updateQuatFromEuler();
+		// Update C3 bounds (rotation affects world-space AABB)
+		this._updateInstanceBounds();
 	}
 
 	// ========================================================================
@@ -680,6 +660,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update euler angles to stay in sync (approximate, may have gimbal lock issues)
 		this._updateEulerFromQuat();
+
+		// Update C3 bounds (rotation affects world-space AABB)
+		this._updateInstanceBounds();
 	}
 
 	/**
@@ -791,6 +774,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._scaleX = scale;
 		this._scaleY = scale;
 		this._scaleZ = scale;
+
+		// Update C3 bounds when scale changes
+		this._updateInstanceBounds();
 	}
 
 	// Set non-uniform scale (per axis)
@@ -799,6 +785,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._scaleX = x;
 		this._scaleY = y;
 		this._scaleZ = z;
+
+		// Update C3 bounds when Z scale changes
+		this._updateInstanceBounds();
 	}
 
 	_isModelLoaded(): boolean
@@ -1322,6 +1311,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Create animation controller if model has skinning/animation data
 			this._createAnimationController();
 
+			// Update C3 instance bounds from model bounding box for proper 3D culling
+			this._updateInstanceBounds();
+
 			// Trigger "On Loaded" condition
 			this._trigger(C3.Plugins.GltfStatic.Cnds.OnLoaded);
 		}
@@ -1712,6 +1704,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_setBBoxScale(scale: number): void
 	{
 		this._bboxScale = scale;
+
+		// Update C3 bounds when bbox scale changes
+		this._updateInstanceBounds();
 	}
 
 	/**
@@ -1720,6 +1715,77 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_getBBoxScale(): number
 	{
 		return this._bboxScale;
+	}
+
+	/**
+	 * Update the C3 instance bounds (depth) from the model's rotated bounding box.
+	 * This enables proper 3D frustum culling by C3's engine.
+	 * Called automatically when model loads, scale changes, or rotation changes.
+	 */
+	_updateInstanceBounds(): void
+	{
+		if (!this._model?.isLoaded) return;
+
+		const min = this._model.boundingBoxMin;
+		const max = this._model.boundingBoxMax;
+
+		// Get the 8 corners of the bounding box, apply scale and rotation
+		const corners = [
+			[min[0], min[1], min[2]],
+			[min[0], min[1], max[2]],
+			[min[0], max[1], min[2]],
+			[min[0], max[1], max[2]],
+			[max[0], min[1], min[2]],
+			[max[0], min[1], max[2]],
+			[max[0], max[1], min[2]],
+			[max[0], max[1], max[2]]
+		];
+
+		// Compute world-space AABB by transforming corners with scale and rotation
+		let worldMinZ = Infinity;
+		let worldMaxZ = -Infinity;
+
+		for (const corner of corners) {
+			// Apply scale
+			const sx = corner[0] * this._scaleX;
+			const sy = corner[1] * this._scaleY;
+			const sz = corner[2] * this._scaleZ;
+
+			// Apply quaternion rotation
+			// Formula: v' = q * v * q^-1, but for performance we use the expanded form
+			const qx = this._rotationQuat[0];
+			const qy = this._rotationQuat[1];
+			const qz = this._rotationQuat[2];
+			const qw = this._rotationQuat[3];
+
+			// Rotate point by quaternion
+			const ix = qw * sx + qy * sz - qz * sy;
+			const iy = qw * sy + qz * sx - qx * sz;
+			const iz = qw * sz + qx * sy - qy * sx;
+			const iw = -qx * sx - qy * sy - qz * sz;
+
+			const rz = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+
+			// Track min/max Z in world space
+			if (rz < worldMinZ) worldMinZ = rz;
+			if (rz > worldMaxZ) worldMaxZ = rz;
+		}
+
+		// Calculate world-space depth (Z extent) for C3's 3D bounding box
+		const worldDepth = worldMaxZ - worldMinZ;
+
+		// Set depth so C3 can compute proper 3D bounding box for culling
+		// 'depth' is the new IWorldInstance property (zHeight is deprecated)
+		(this as any).depth = worldDepth;
+
+		debugLog("Updated instance bounds:", {
+			bbMin: [min[0], min[1], min[2]],
+			bbMax: [max[0], max[1], max[2]],
+			scale: [this._scaleX, this._scaleY, this._scaleZ],
+			quat: [this._rotationQuat[0], this._rotationQuat[1], this._rotationQuat[2], this._rotationQuat[3]],
+			worldZRange: [worldMinZ, worldMaxZ],
+			worldDepth
+		});
 	}
 
 	/**
