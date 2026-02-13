@@ -1,3 +1,4 @@
+import "./builtin-models.js";
 import "./plugin.js";
 import "./type.js";
 import "./gltf-bundle.js";

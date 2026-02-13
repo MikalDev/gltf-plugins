@@ -11,11 +11,13 @@
 	"documentation": "https://github.com/MikalDev/gltf-static",
 	"description": "Load and render static glTF 3D models in Construct 3.",
 	"editor-scripts": [
+		"c3runtime/builtin-models.js",
 		"plugin.js",
 		"type.js",
 		"instance.js"
 	],
 	"file-list": [
+		"c3runtime/builtin-models.js",
 		"c3runtime/main.js",
 		"c3runtime/plugin.js",
 		"c3runtime/type.js",

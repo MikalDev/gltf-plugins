@@ -279,8 +279,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const updateInterval = effectiveFrameSkip + 1;
 		const shouldUpdate = ((this._frameCounter + this._frameOffset) % updateInterval) === 0;
 
-		// Update animation if playing
-		if (this._animationController?.isPlaying())
+		// Update animation if actively playing (not paused)
+		if (this._animationController?.isPlaying() && !this._animationController.isPaused())
 		{
 			if (shouldUpdate)
 			{
@@ -301,7 +301,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		}
 		else
 		{
-			// Not playing - reset accumulated time to avoid buildup
+			// Not playing or paused - reset accumulated time to avoid buildup
 			this._accumulatedDt = 0;
 		}
 
