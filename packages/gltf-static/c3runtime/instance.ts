@@ -45,7 +45,6 @@ function debugError(...args: unknown[]): void {
 
 function modelLoadLog(...args: unknown[]): void {
 	if (globalThis.gltfDebug) console.log(LOG_PREFIX, ...args);
-	if (true) console.log(LOG_PREFIX, ...args);
 }
 
 function modelLoadWarn(...args: unknown[]): void {
@@ -231,7 +230,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		mat4.identity(this._instanceMatrix);
 
 		// 1. T(position): translate to instance world position
-		vec3.set(tempVec, this.x, this.y, this.totalZElevation);
+		vec3.set(tempVec, this.x, this.y, this.totalZ);
 		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		// 2. R: apply C3 angle (Z rotation) first, then quaternion rotation
@@ -315,11 +314,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Check for position/angle changes (C3 properties we can't override)
 		if (this.x !== this._lastX || this.y !== this._lastY ||
-			this.totalZElevation !== this._lastZ || this.angle !== this._lastAngle)
+			this.totalZ !== this._lastZ || this.angle !== this._lastAngle)
 		{
 			this._lastX = this.x;
 			this._lastY = this.y;
-			this._lastZ = this.totalZElevation;
+			this._lastZ = this.totalZ;
 			this._lastAngle = this.angle;
 			this._instanceMatrixDirty = true;
 		}
@@ -399,7 +398,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		mat4.identity(modelRotationMatrix);
 
 		// 1. T(position): translate to instance world position
-		vec3.set(tempVec, this.x, this.y, this.totalZElevation);
+		vec3.set(tempVec, this.x, this.y, this.totalZ);
 		mat4.translate(modelRotationMatrix, modelRotationMatrix, tempVec);
 
 		// 2. R: apply C3 angle first, then quaternion rotation (same as _buildModelViewMatrix)
@@ -636,6 +635,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_tick2(): void
 	{
 		SharedWorkerPool.flushIfPending();
+
+		// Force bounds update while off-screen to keep C3's render state primed
+		// The depth epsilon in _updateInstanceBounds() ensures C3 sees it as "changed"
+		if (this._model?.isLoaded) {
+			const onScreen = (this as any).isOnScreen?.();
+			if (!onScreen) {
+				this._updateInstanceBounds();
+			}
+		}
 	}
 
 	_draw(renderer: IRenderer): void
@@ -1271,7 +1279,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const camPos = this._getCameraPosition();
 		const dx = this.x - camPos[0];
 		const dy = this.y - camPos[1];
-		const dz = this.totalZElevation - camPos[2];
+		const dz = this.totalZ - camPos[2];
 		const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
 		if (distance <= this._lodFullRateRadius) return 0;
@@ -1825,7 +1833,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const min = this._model.boundingBoxMin;
 		const max = this._model.boundingBoxMax;
 
-		// Get the 8 corners of the bounding box, apply scale and rotation
+		// Get the 8 corners of the bounding box
 		const corners = [
 			[min[0], min[1], min[2]],
 			[min[0], min[1], max[2]],
@@ -1838,8 +1846,14 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		];
 
 		// Compute world-space AABB by transforming corners with scale and rotation
-		let worldMinZ = Infinity;
-		let worldMaxZ = -Infinity;
+		let worldMinX = Infinity, worldMaxX = -Infinity;
+		let worldMinY = Infinity, worldMaxY = -Infinity;
+		let worldMinZ = Infinity, worldMaxZ = -Infinity;
+
+		const qx = this._rotationQuat[0];
+		const qy = this._rotationQuat[1];
+		const qz = this._rotationQuat[2];
+		const qw = this._rotationQuat[3];
 
 		for (const corner of corners) {
 			// Apply scale
@@ -1847,41 +1861,34 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			const sy = corner[1] * this._scaleY;
 			const sz = corner[2] * this._scaleZ;
 
-			// Apply quaternion rotation
-			// Formula: v' = q * v * q^-1, but for performance we use the expanded form
-			const qx = this._rotationQuat[0];
-			const qy = this._rotationQuat[1];
-			const qz = this._rotationQuat[2];
-			const qw = this._rotationQuat[3];
-
-			// Rotate point by quaternion
+			// Rotate by quaternion: v' = q * v * q^-1
 			const ix = qw * sx + qy * sz - qz * sy;
 			const iy = qw * sy + qz * sx - qx * sz;
 			const iz = qw * sz + qx * sy - qy * sx;
 			const iw = -qx * sx - qy * sy - qz * sz;
 
+			const rx = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+			const ry = iy * qw + iw * -qy + iz * -qx - ix * -qz;
 			const rz = iz * qw + iw * -qz + ix * -qy - iy * -qx;
 
-			// Track min/max Z in world space
+			// Track min/max for all axes
+			if (rx < worldMinX) worldMinX = rx;
+			if (rx > worldMaxX) worldMaxX = rx;
+			if (ry < worldMinY) worldMinY = ry;
+			if (ry > worldMaxY) worldMaxY = ry;
 			if (rz < worldMinZ) worldMinZ = rz;
 			if (rz > worldMaxZ) worldMaxZ = rz;
 		}
 
-		// Calculate world-space depth (Z extent) for C3's 3D bounding box
-		const worldDepth = worldMaxZ - worldMinZ;
-
-		// Set depth so C3 can compute proper 3D bounding box for culling
-		// 'depth' is the new IWorldInstance property (zHeight is deprecated)
-		(this as any).depth = worldDepth;
-
-		debugLog("Updated instance bounds:", {
-			bbMin: [min[0], min[1], min[2]],
-			bbMax: [max[0], max[1], max[2]],
-			scale: [this._scaleX, this._scaleY, this._scaleZ],
-			quat: [this._rotationQuat[0], this._rotationQuat[1], this._rotationQuat[2], this._rotationQuat[3]],
-			worldZRange: [worldMinZ, worldMaxZ],
-			worldDepth
-		});
+		// Set C3 instance bounds for proper frustum culling (apply bbox scale factor)
+		// Note: Tiny random epsilon on depth forces C3's setter to see it as "changed" each call.
+		// Without this, C3's internal dirty check no-ops when value is unchanged, causing
+		// models to not render when returning to screen after being off-screen.
+		(this as any).width = (worldMaxX - worldMinX) * this._bboxScale;
+		(this as any).height = (worldMaxY - worldMinY) * this._bboxScale;
+		(this as any).depth = (worldMaxZ - worldMinZ) * this._bboxScale + Math.random() * 0.0000001;
+		// Notify C3 that bounds changed so it re-evaluates frustum culling
+		(this as any).GetWorldInfo?.()?.SetBboxChanged?.();
 	}
 
 	/**
@@ -2004,7 +2011,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const objectMatrix = mat4.create();
 
 		// 1. T(position)
-		vec3.set(tempVec, this.x, this.y, this.totalZElevation);
+		vec3.set(tempVec, this.x, this.y, this.totalZ);
 		mat4.translate(objectMatrix, objectMatrix, tempVec);
 
 		// 2. R: apply C3 angle first, then quaternion rotation
@@ -2291,7 +2298,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			const camPos = this._getCameraPosition();
 			const dx = this.x - camPos[0];
 			const dy = this.y - camPos[1];
-			const dz = this.totalZElevation - camPos[2];
+			const dz = this.totalZ - camPos[2];
 			const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
 			props.push({
