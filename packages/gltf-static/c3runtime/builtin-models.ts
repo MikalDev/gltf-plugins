@@ -12,7 +12,7 @@ interface MeshData {
 }
 
 type FaceColorKey = "posX" | "negX" | "posY" | "negY" | "posZ" | "negZ";
-type BuiltinModelType = "cube" | "sphere";
+type BuiltinModelType = "cube" | "sphere" | "capsule";
 
 const FACE_COLORS: Record<FaceColorKey, number[]> = {
 	posX: [1.0, 0.98, 0.95, 1.0],
@@ -140,6 +140,152 @@ function generateSphereData(): MeshData {
 	return { positions, normals, texCoords, colors, indices };
 }
 
+function generateCapsuleData(): MeshData {
+	const radius = 5;
+	const cylinderHeight = 10; // Total height = 20 (2x width of 10)
+	const radialSegments = 8; // Low poly
+	const capSegments = 4; // Hemisphere segments
+
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	const halfCylHeight = cylinderHeight / 2;
+
+	// Top hemisphere (from pole down to equator)
+	for (let y = 0; y <= capSegments; y++) {
+		const v = y / capSegments;
+		const phi = v * Math.PI / 2; // 0 to PI/2
+
+		for (let x = 0; x <= radialSegments; x++) {
+			const u = x / radialSegments;
+			const theta = u * Math.PI * 2;
+
+			const nx = Math.sin(phi) * Math.cos(theta);
+			const ny = Math.cos(phi);
+			const nz = Math.sin(phi) * Math.sin(theta);
+
+			positions.push(nx * radius, ny * radius + halfCylHeight, nz * radius);
+			normals.push(nx, ny, nz);
+			texCoords.push(u, v * 0.25);
+
+			const absX = Math.abs(nx);
+			const absZ = Math.abs(nz);
+			let color: number[];
+			if (ny > 0.5) {
+				color = FACE_COLORS.posY;
+			} else if (absX >= absZ) {
+				color = nx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+			} else {
+				color = nz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+			}
+			colors.push(...color);
+		}
+	}
+
+	// Cylinder body (just top and bottom rings, normals point outward)
+	for (let y = 0; y <= 1; y++) {
+		const yPos = y === 0 ? halfCylHeight : -halfCylHeight;
+		const vCoord = 0.25 + y * 0.5;
+
+		for (let x = 0; x <= radialSegments; x++) {
+			const u = x / radialSegments;
+			const theta = u * Math.PI * 2;
+
+			const nx = Math.cos(theta);
+			const nz = Math.sin(theta);
+
+			positions.push(nx * radius, yPos, nz * radius);
+			normals.push(nx, 0, nz);
+			texCoords.push(u, vCoord);
+
+			const absX = Math.abs(nx);
+			const absZ = Math.abs(nz);
+			let color: number[];
+			if (absX >= absZ) {
+				color = nx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+			} else {
+				color = nz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+			}
+			colors.push(...color);
+		}
+	}
+
+	// Bottom hemisphere (from equator down to pole)
+	for (let y = 0; y <= capSegments; y++) {
+		const v = y / capSegments;
+		const phi = Math.PI / 2 + v * Math.PI / 2; // PI/2 to PI
+
+		for (let x = 0; x <= radialSegments; x++) {
+			const u = x / radialSegments;
+			const theta = u * Math.PI * 2;
+
+			const nx = Math.sin(phi) * Math.cos(theta);
+			const ny = Math.cos(phi);
+			const nz = Math.sin(phi) * Math.sin(theta);
+
+			positions.push(nx * radius, ny * radius - halfCylHeight, nz * radius);
+			normals.push(nx, ny, nz);
+			texCoords.push(u, 0.75 + v * 0.25);
+
+			const absX = Math.abs(nx);
+			const absZ = Math.abs(nz);
+			let color: number[];
+			if (ny < -0.5) {
+				color = FACE_COLORS.negY;
+			} else if (absX >= absZ) {
+				color = nx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+			} else {
+				color = nz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+			}
+			colors.push(...color);
+		}
+	}
+
+	const rowSize = radialSegments + 1;
+
+	// Top hemisphere indices
+	for (let y = 0; y < capSegments; y++) {
+		for (let x = 0; x < radialSegments; x++) {
+			const a = y * rowSize + x;
+			const b = a + rowSize;
+			const c = a + 1;
+			const d = b + 1;
+
+			if (y !== 0) indices.push(a, b, c);
+			indices.push(c, b, d);
+		}
+	}
+
+	// Cylinder indices
+	const cylStart = (capSegments + 1) * rowSize;
+	for (let x = 0; x < radialSegments; x++) {
+		const a = cylStart + x;
+		const b = a + rowSize;
+		const c = a + 1;
+		const d = b + 1;
+		indices.push(a, b, c, c, b, d);
+	}
+
+	// Bottom hemisphere indices
+	const botStart = cylStart + 2 * rowSize;
+	for (let y = 0; y < capSegments; y++) {
+		for (let x = 0; x < radialSegments; x++) {
+			const a = botStart + y * rowSize + x;
+			const b = a + rowSize;
+			const c = a + 1;
+			const d = b + 1;
+
+			indices.push(a, b, c);
+			if (y !== capSegments - 1) indices.push(c, b, d);
+		}
+	}
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
 function uint8ArrayToBase64(bytes: Uint8Array): string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let result = "";
@@ -214,6 +360,7 @@ function buildGltfJson(mesh: MeshData, name: string): string {
 // Cached JSON strings
 let _cubeJson: string | null = null;
 let _sphereJson: string | null = null;
+let _capsuleJson: string | null = null;
 
 function getCubeJson(): string {
 	if (!_cubeJson) _cubeJson = buildGltfJson(generateCubeData(), "BuiltinCube");
@@ -225,25 +372,31 @@ function getSphereJson(): string {
 	return _sphereJson;
 }
 
+function getCapsuleJson(): string {
+	if (!_capsuleJson) _capsuleJson = buildGltfJson(generateCapsuleData(), "BuiltinCapsule");
+	return _capsuleJson;
+}
+
 // Public API
 const BuiltinModels = {
 	isBuiltinModelUrl(url: string): boolean {
-		return url === "builtin:cube" || url === "builtin:sphere";
+		return url === "builtin:cube" || url === "builtin:sphere" || url === "builtin:capsule";
 	},
 
 	getBuiltinModelType(url: string): BuiltinModelType | null {
 		if (url === "builtin:cube") return "cube";
 		if (url === "builtin:sphere") return "sphere";
+		if (url === "builtin:capsule") return "capsule";
 		return null;
 	},
 
 	getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
-		const json = type === "cube" ? getCubeJson() : getSphereJson();
+		const json = type === "cube" ? getCubeJson() : type === "sphere" ? getSphereJson() : getCapsuleJson();
 		return new TextEncoder().encode(json).buffer;
 	},
 
 	getBuiltinModelDataUrl(type: BuiltinModelType): string {
-		const json = type === "cube" ? getCubeJson() : getSphereJson();
+		const json = type === "cube" ? getCubeJson() : type === "sphere" ? getSphereJson() : getCapsuleJson();
 		const bytes = new TextEncoder().encode(json);
 		const base64 = uint8ArrayToBase64(bytes);
 		return `data:model/gltf+json;base64,${base64}`;

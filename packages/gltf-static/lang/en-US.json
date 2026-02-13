@@ -48,7 +48,8 @@
 						"desc": "Select which built-in primitive to use.",
 						"items": {
 							"cube": "Cube",
-							"sphere": "Sphere"
+							"sphere": "Sphere",
+							"capsule": "Capsule"
 						}
 					}
 				},

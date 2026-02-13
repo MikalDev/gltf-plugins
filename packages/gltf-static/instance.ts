@@ -3,7 +3,7 @@ import type { EditorSpotlight, EditorEnvironment } from "@gltf-plugins/shared-ty
 const PLUGIN_CLASS = SDK.Plugins.GltfStatic;
 
 // Builtin models are loaded via globalThis.GltfBundle.BuiltinModels (from c3runtime/builtin-models.js)
-type BuiltinModelType = "cube" | "sphere";
+type BuiltinModelType = "cube" | "sphere" | "capsule";
 
 function getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
 	return (globalThis as any).GltfBundle.BuiltinModels.getBuiltinModelArrayBuffer(type);
@@ -845,7 +845,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		if (useBuiltin)
 		{
 			const builtinType = this._inst.GetPropertyValue(PROP_BUILTIN_TYPE) as string;
-			return builtinType === "cube" ? "builtin:cube" : "builtin:sphere";
+			return `builtin:${builtinType}`;
 		}
 		return this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
 	}

@@ -419,6 +419,17 @@ export class GltfMesh {
 	}
 
 	/**
+	 * Apply worker-transformed positions and colors to GPU buffers.
+	 * Called when instance TRS changes and worker returns transformed data.
+	 */
+	applyTransformedData(positions: Float32Array, colors: Float32Array | null): void {
+		this._applyPositions(positions);
+		if (colors) {
+			this._applyColors(colors);
+		}
+	}
+
+	/**
 	 * Check if matrix has changed from last applied matrix.
 	 */
 	private _isMatrixDirty(matrix: Float32Array): boolean {

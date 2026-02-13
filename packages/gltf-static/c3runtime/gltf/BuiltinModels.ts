@@ -5,9 +5,9 @@
 
 interface BuiltinModelsAPI {
 	isBuiltinModelUrl(url: string): boolean;
-	getBuiltinModelType(url: string): "cube" | "sphere" | null;
-	getBuiltinModelArrayBuffer(type: "cube" | "sphere"): ArrayBuffer;
-	getBuiltinModelDataUrl(type: "cube" | "sphere"): string;
+	getBuiltinModelType(url: string): "cube" | "sphere" | "capsule" | null;
+	getBuiltinModelArrayBuffer(type: "cube" | "sphere" | "capsule"): ArrayBuffer;
+	getBuiltinModelDataUrl(type: "cube" | "sphere" | "capsule"): string;
 	resolveBuiltinUrl(url: string): string;
 }
 
@@ -15,7 +15,7 @@ interface BuiltinModelsAPI {
 const g = globalThis as unknown as { GltfBundle?: { BuiltinModels?: BuiltinModelsAPI } };
 const BuiltinModels = g.GltfBundle?.BuiltinModels;
 
-export type BuiltinModelType = "cube" | "sphere";
+export type BuiltinModelType = "cube" | "sphere" | "capsule";
 
 export function isBuiltinModelUrl(url: string): boolean {
 	return BuiltinModels?.isBuiltinModelUrl(url) ?? false;

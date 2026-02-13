@@ -91,6 +91,10 @@ export class GltfModel {
 	private _boundingBoxMin: Float32Array = new Float32Array(3);
 	private _boundingBoxMax: Float32Array = new Float32Array(3);
 
+	// Instance TRS matrix for CPU-side vertex transformation
+	private _instanceMatrix: Float32Array = mat4.create() as Float32Array;
+	private _lastInstanceMatrix: Float32Array | null = null;
+
 	// Skinning and animation data (references to shared cache, NOT owned)
 	private _skins: CachedSkinData[] = [];
 	private _animations: CachedAnimationData[] = [];
@@ -609,6 +613,74 @@ export class GltfModel {
 			if (Math.abs(last[i] - current[i]) > 0.0001) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Set the instance TRS matrix. Called when object position/rotation/scale changes.
+	 * Triggers worker transform for all static meshes if matrix changed.
+	 * @param matrix The instance TRS matrix (world space transform)
+	 * @param lightConfig Optional lighting config - if provided, lighting is calculated in the same worker pass
+	 */
+	setInstanceMatrix(matrix: Float32Array, lightConfig?: WorkerLightConfig | null): void {
+		// Check if matrix actually changed
+		if (this._lastInstanceMatrix && !this._hasInstanceMatrixChanged(matrix, this._lastInstanceMatrix)) {
+			return;
+		}
+
+		this._instanceMatrix.set(matrix);
+		if (!this._lastInstanceMatrix) {
+			this._lastInstanceMatrix = new Float32Array(16);
+		}
+		this._lastInstanceMatrix.set(matrix);
+
+		// Queue all static meshes for transform (with optional lighting)
+		this._queueStaticTransforms(lightConfig);
+	}
+
+	/**
+	 * Check if instance matrix has changed (compares rotation/scale/translation).
+	 */
+	private _hasInstanceMatrixChanged(a: Float32Array, b: Float32Array): boolean {
+		// Compare relevant matrix elements (rotation/scale/translation)
+		const indices = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
+		for (const i of indices) {
+			if (Math.abs(a[i] - b[i]) > 0.0001) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Queue all static meshes for worker-based transform + lighting.
+	 * KISS: Receives lightConfig from caller rather than trying to build it here.
+	 * The instance owns lighting state, so it should provide the config.
+	 */
+	private _queueStaticTransforms(lightConfig?: WorkerLightConfig | null): void {
+		if (!SharedWorkerPool.isInitialized()) return;
+
+		const pool = SharedWorkerPool.get();
+		if (!pool) return;
+
+		const requests: Array<{ meshId: number; instanceMatrix: Float32Array; lightConfig: WorkerLightConfig | null }> = [];
+
+		for (const mesh of this._meshes) {
+			if (!mesh.isSkinned && mesh.hasNormals && mesh.isRegisteredStaticLightingWithPool) {
+				requests.push({
+					meshId: mesh.id,
+					instanceMatrix: this._instanceMatrix,
+					lightConfig: lightConfig ?? null
+				});
+			}
+		}
+
+		if (requests.length > 0) {
+			pool.queueStaticTransformAndLighting(requests, (meshId, positions, colors) => {
+				const mesh = this._meshes.find(m => m.id === meshId);
+				if (mesh) {
+					mesh.applyTransformedData(positions, colors);
+				}
+			});
+			SharedWorkerPool.scheduleFlush();
+		}
 	}
 
 	/**
