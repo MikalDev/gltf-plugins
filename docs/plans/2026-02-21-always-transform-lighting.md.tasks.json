@@ -1,0 +1,12 @@
+{
+  "planPath": "docs/plans/2026-02-21-always-transform-lighting.md",
+  "tasks": [
+    {"id": 0, "subject": "Task 1: Rewrite _tick() and remove dirty tracking from instance.ts", "status": "pending"},
+    {"id": 1, "subject": "Task 2: Update GltfModel — forceStaticTransformAndLighting, remove setInstanceMatrix/queueStaticLighting", "status": "pending", "blockedBy": [0]},
+    {"id": 2, "subject": "Task 3: Remove LIGHTING_BATCH from worker and queueStaticLighting from TransformWorkerPool", "status": "pending", "blockedBy": [1]},
+    {"id": 3, "subject": "Task 4: Remove modelMatrix from WorkerLightConfig and _buildLightConfig", "status": "pending", "blockedBy": [2]},
+    {"id": 4, "subject": "Task 5: Fix bake toggle — preserve normals, simplify bake methods", "status": "pending", "blockedBy": [3]},
+    {"id": 5, "subject": "Task 6: Final build, verify, cleanup", "status": "pending", "blockedBy": [4]}
+  ],
+  "lastUpdated": "2026-02-21T00:00:00Z"
+}
