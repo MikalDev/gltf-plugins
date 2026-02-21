@@ -528,56 +528,6 @@ self.onmessage = (e) => {
 			break;
 		}
 
-		case "LIGHTING_BATCH": {
-			// Process lighting for multiple static meshes
-			const lightConfig = msg.lightConfig;
-			const requestedMeshIds = msg.meshIds;
-
-			// Calculate total vertices
-			let totalVertices = 0;
-			const meshEntries = [];
-			for (const meshId of requestedMeshIds) {
-				const entry = staticLightingCache.get(meshId);
-				if (!entry) continue;
-				totalVertices += entry.vertexCount;
-				meshEntries.push({ meshId, entry });
-			}
-
-			if (meshEntries.length === 0) {
-				self.postMessage({ type: "LIGHTING_RESULTS", meshIds: new Uint32Array(0), offsets: new Uint32Array(1), colors: new Float32Array(0) }, []);
-				break;
-			}
-
-			// Allocate packed color buffer (4 floats per vertex)
-			const packedColors = new Float32Array(totalVertices * 4);
-			const offsets = new Uint32Array(meshEntries.length + 1);
-			const meshIds = new Uint32Array(meshEntries.length);
-
-			let colorOffset = 0;
-			for (let i = 0; i < meshEntries.length; i++) {
-				const { meshId, entry } = meshEntries[i];
-
-				// Calculate lighting using existing function
-				// Normals are baked with node world transform at load time, modelMatrix applies runtime transform
-				calculateLighting(
-					entry.positions, entry.normals, packedColors,
-					0, 0, colorOffset, entry.vertexCount,
-					lightConfig.modelMatrix, lightConfig
-				);
-
-				meshIds[i] = meshId;
-				offsets[i] = colorOffset;
-				colorOffset += entry.vertexCount * 4;
-			}
-			offsets[meshEntries.length] = colorOffset;
-
-			self.postMessage(
-				{ type: "LIGHTING_RESULTS", meshIds, offsets, colors: packedColors },
-				[packedColors.buffer, meshIds.buffer, offsets.buffer]
-			);
-			break;
-		}
-
 		case "STATIC_TRANSFORM_AND_LIGHTING": {
 			// Transform static meshes with instance matrix and optional lighting
 			const requests = msg.requests; // Array of { meshId, instanceMatrix, lightConfig? }
@@ -621,12 +571,14 @@ self.onmessage = (e) => {
 				// Transform positions with instance matrix
 				transformVerticesInto(entry.positions, packedPositions, offset, req.instanceMatrix, entry.vertexCount);
 
-				// Calculate lighting if config provided and mesh has normals
+				// Calculate lighting if config provided and mesh has normals.
+				// Use original model-space positions (entry.positions) with the instance matrix,
+				// NOT packedPositions (already world-space) — that would double-transform positions,
+				// causing spotlight distance calculations to land in a completely wrong space.
 				if (packedColors && entry.normals && req.lightConfig) {
-					// Normals are transformed using the rotation part of instanceMatrix
 					calculateLighting(
-						packedPositions, entry.normals, packedColors,
-						offset, 0, colorOffset, entry.vertexCount,
+						entry.positions, entry.normals, packedColors,
+						0, 0, colorOffset, entry.vertexCount,
 						req.instanceMatrix, req.lightConfig
 					);
 				}
@@ -667,7 +619,6 @@ self.onmessage = (e) => {
 
 type TransformCallback = (positions: Float32Array) => void;
 type SkinningCallback = (positions: Float32Array, normals: Float32Array | null, colors: Float32Array | null) => void;
-type StaticLightingCallback = (colors: Float32Array) => void;
 type StaticTransformCallback = (positions: Float32Array, colors: Float32Array | null) => void;
 
 /** Light configuration for worker-based lighting calculation */
@@ -707,10 +658,6 @@ export interface WorkerLightConfig {
 	};
 	/** Camera world position for specular calculations */
 	cameraPosition?: Float32Array | number[];
-	/** Full 4x4 model matrix for position/normal transform (column-major) */
-	modelMatrix?: Float32Array | null;
-	/** @deprecated Use modelMatrix instead */
-	modelRotation?: Float32Array | null;
 }
 
 interface MeshRegistration {
@@ -726,7 +673,6 @@ interface SkinnedMeshRegistration {
 
 interface StaticLightingRegistration {
 	workerIndex: number;
-	callback: StaticLightingCallback;
 }
 
 interface PendingRequest {
@@ -740,11 +686,6 @@ interface PendingSkinRequest {
 	lightConfig?: WorkerLightConfig;
 }
 
-interface PendingLightingRequest {
-	meshIds: number[];
-	lightConfig: WorkerLightConfig;
-}
-
 interface PendingStaticTransformRequest {
 	requests: Array<{ meshId: number; instanceMatrix: Float32Array; lightConfig?: WorkerLightConfig | null }>;
 }
@@ -756,7 +697,6 @@ interface PendingResult {
 	normals: Float32Array | null;
 	colors: Float32Array | null;
 	isSkinning: boolean;
-	isLighting: boolean;
 	isStaticTransform: boolean;
 }
 
@@ -769,7 +709,6 @@ export class TransformWorkerPool {
 	private _staticTransformCallbacks = new Map<number, StaticTransformCallback>();
 	private _pendingByWorker: Map<number, PendingRequest[]> = new Map();
 	private _pendingSkinByWorker: Map<number, PendingSkinRequest[]> = new Map();
-	private _pendingLightingByWorker: Map<number, PendingLightingRequest[]> = new Map();
 	private _pendingStaticTransformByWorker: Map<number, PendingStaticTransformRequest[]> = new Map();
 	private _flushResolvers: Array<() => void> = [];
 	private _pendingResponses = 0;
@@ -797,7 +736,6 @@ export class TransformWorkerPool {
 			this._workers.push(worker);
 			this._pendingByWorker.set(i, []);
 			this._pendingSkinByWorker.set(i, []);
-			this._pendingLightingByWorker.set(i, []);
 			this._pendingStaticTransformByWorker.set(i, []);
 		}
 	}
@@ -887,18 +825,16 @@ export class TransformWorkerPool {
 	}
 
 	/**
-	 * Register a static mesh for worker-based lighting calculations.
+	 * Register a static mesh with the worker pool for transform+lighting routing.
 	 * Positions and normals are transferred to worker (zero-copy).
 	 * @param meshId Unique mesh identifier
 	 * @param positions Vertex positions in model space (will be transferred, needed for spotlights)
 	 * @param normals Vertex normals in model space (will be transferred)
-	 * @param callback Called with computed vertex colors after flush()
 	 */
 	registerStaticMeshForLighting(
 		meshId: number,
 		positions: Float32Array | null,
-		normals: Float32Array,
-		callback: StaticLightingCallback
+		normals: Float32Array
 	): void {
 		if (this._disposed) return;
 
@@ -906,7 +842,7 @@ export class TransformWorkerPool {
 		const workerIndex = this._nextWorkerIndex;
 		this._nextWorkerIndex = (this._nextWorkerIndex + 1) % this._workerCount;
 
-		this._staticLightingRegistry.set(meshId, { workerIndex, callback });
+		this._staticLightingRegistry.set(meshId, { workerIndex });
 
 		// Transfer positions and normals to worker
 		const transferList: ArrayBufferLike[] = [normals.buffer];
@@ -952,39 +888,6 @@ export class TransformWorkerPool {
 			this._pendingSkinByWorker.get(workerIndex)!.push({
 				meshIds: workerMeshIds,
 				boneMatrices: new Float32Array(boneMatrices), // Copy to avoid caller reuse issues
-				lightConfig
-			});
-		}
-	}
-
-	/**
-	 * Queue lighting calculation for multiple static meshes.
-	 * @param meshIds Array of mesh IDs to calculate lighting for
-	 * @param lightConfig Lighting configuration (ambient, lights, modelRotation)
-	 */
-	queueStaticLighting(meshIds: number[], lightConfig: WorkerLightConfig): void {
-		if (this._disposed) return;
-		if (meshIds.length === 0) return;
-
-		// Group meshes by worker
-		const byWorker = new Map<number, number[]>();
-		for (const meshId of meshIds) {
-			const registration = this._staticLightingRegistry.get(meshId);
-			if (!registration) {
-				continue;
-			}
-			const workerMeshes = byWorker.get(registration.workerIndex);
-			if (workerMeshes) {
-				workerMeshes.push(meshId);
-			} else {
-				byWorker.set(registration.workerIndex, [meshId]);
-			}
-		}
-
-		// Queue lighting request per worker
-		for (const [workerIndex, workerMeshIds] of byWorker) {
-			this._pendingLightingByWorker.get(workerIndex)!.push({
-				meshIds: workerMeshIds,
 				lightConfig
 			});
 		}
@@ -1075,18 +978,6 @@ export class TransformWorkerPool {
 			}
 			this._pendingSkinByWorker.set(i, []); // Clear pending
 
-			// Send static lighting requests
-			const pendingLighting = this._pendingLightingByWorker.get(i)!;
-			for (const lightReq of pendingLighting) {
-				workersWithWork++;
-				this._workers[i].postMessage({
-					type: "LIGHTING_BATCH",
-					meshIds: lightReq.meshIds,
-					lightConfig: lightReq.lightConfig
-				});
-			}
-			this._pendingLightingByWorker.set(i, []); // Clear pending
-
 			// Send static transform + lighting requests
 			const pendingStaticTransform = this._pendingStaticTransformByWorker.get(i)!;
 			for (const transformReq of pendingStaticTransform) {
@@ -1119,7 +1010,6 @@ export class TransformWorkerPool {
 	}): void {
 		const isTransformResult = msg.type === "TRANSFORM_RESULTS";
 		const isSkinResult = msg.type === "SKIN_RESULTS";
-		const isLightingResult = msg.type === "LIGHTING_RESULTS";
 		const isStaticTransformResult = msg.type === "STATIC_TRANSFORM_AND_LIGHTING_RESULTS";
 
 		if ((isTransformResult || isSkinResult) && msg.positions && msg.meshIds && msg.offsets) {
@@ -1131,21 +1021,6 @@ export class TransformWorkerPool {
 				normals: msg.normals ?? null,
 				colors: msg.colors ?? null,
 				isSkinning: isSkinResult,
-				isLighting: false,
-				isStaticTransform: false
-			});
-
-			this._checkFlushComplete();
-		} else if (isLightingResult && msg.colors && msg.meshIds && msg.offsets) {
-			// Collect lighting result
-			this._pendingResults.push({
-				meshIds: msg.meshIds,
-				offsets: msg.offsets,
-				positions: null,
-				normals: null,
-				colors: msg.colors,
-				isSkinning: false,
-				isLighting: true,
 				isStaticTransform: false
 			});
 
@@ -1159,7 +1034,6 @@ export class TransformWorkerPool {
 				normals: null,
 				colors: msg.colors ?? null,
 				isSkinning: false,
-				isLighting: false,
 				isStaticTransform: true
 			});
 
@@ -1188,21 +1062,9 @@ export class TransformWorkerPool {
 	 */
 	private _invokeAllCallbacks(): void {
 		for (const result of this._pendingResults) {
-			const { meshIds, offsets, positions, normals, colors, isSkinning, isLighting, isStaticTransform } = result;
+			const { meshIds, offsets, positions, normals, colors, isSkinning, isStaticTransform } = result;
 
-			if (isLighting) {
-				// Lighting results: offsets are in color floats (4 per vertex)
-				for (let i = 0; i < meshIds.length; i++) {
-					const meshId = meshIds[i];
-					const start = offsets[i];
-					const end = offsets[i + 1];
-
-					const registration = this._staticLightingRegistry.get(meshId);
-					if (registration && colors) {
-						registration.callback(colors.subarray(start, end));
-					}
-				}
-			} else if (isStaticTransform) {
+			if (isStaticTransform) {
 				// Static transform + lighting results: offsets are in position floats (3 per vertex)
 				let colorOffset = 0;
 				for (let i = 0; i < meshIds.length; i++) {
@@ -1316,7 +1178,6 @@ export class TransformWorkerPool {
 		this._staticTransformCallbacks.clear();
 		this._pendingByWorker.clear();
 		this._pendingSkinByWorker.clear();
-		this._pendingLightingByWorker.clear();
 		this._pendingStaticTransformByWorker.clear();
 		this._pendingResults = [];
 

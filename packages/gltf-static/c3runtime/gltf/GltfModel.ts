@@ -4,7 +4,6 @@ import { GltfMesh } from "./GltfMesh.js";
 import { GltfNode } from "./GltfNode.js";
 import type { AnimationController } from "./AnimationController.js";
 import { TransformWorkerPool, SharedWorkerPool, WorkerLightConfig } from "./TransformWorkerPool.js";
-import { getVersion as getLightingVersion } from "./Lighting.js";
 import {
 	modelCache,
 	CachedModelData,
@@ -79,11 +78,6 @@ export class GltfModel {
 	// Matrix dirty tracking to avoid redundant transforms
 	private _lastMatrix: Float32Array | null = null;
 
-	// Static lighting dirty tracking to avoid redundant worker calls
-	private _lastStaticLightingVersion: number = -1;
-	private _lastStaticLightingMatrix: Float32Array | null = null;
-	private _lastCameraPosition: Float32Array | null = null;
-
 	// Bounding box center of all mesh positions (for rotation pivot)
 	private _localCenter: Float32Array = new Float32Array(3);
 
@@ -93,7 +87,6 @@ export class GltfModel {
 
 	// Instance TRS matrix for CPU-side vertex transformation
 	private _instanceMatrix: Float32Array = mat4.create() as Float32Array;
-	private _lastInstanceMatrix: Float32Array | null = null;
 
 	// Skinning and animation data (references to shared cache, NOT owned)
 	private _skins: CachedSkinData[] = [];
@@ -543,110 +536,13 @@ export class GltfModel {
 	}
 
 	/**
-	 * Queue worker-based lighting for all static (non-skinned) meshes.
-	 * Skips if lighting version and rotation haven't changed (dirty tracking).
-	 * @param lightConfig Lighting configuration (ambient, lights, modelRotation)
+	 * Always queue transform+lighting for all registered static meshes.
+	 * Updates the stored instance matrix and queues STATIC_TRANSFORM_AND_LIGHTING.
+	 * No dirty check — always runs.
 	 */
-	queueStaticLighting(lightConfig: WorkerLightConfig): void {
-		if (!this._workerPool || !this._useWorkers) return;
-
-		// Dirty check: skip if nothing changed
-		const currentVersion = getLightingVersion();
-		const matrixChanged = this._hasMatrixChanged(
-			lightConfig.modelMatrix,
-			this._lastStaticLightingMatrix
-		);
-		const cameraChanged = this._hasCameraPositionChanged(lightConfig.cameraPosition);
-		if (this._lastStaticLightingVersion === currentVersion && !matrixChanged && !cameraChanged) {
-			return;
-		}
-
-		// Collect mesh IDs (skip baked meshes)
-		const meshIds: number[] = [];
-		for (const mesh of this._meshes) {
-			if (!mesh.isSkinned && mesh.isRegisteredStaticLightingWithPool && !mesh.isBaked()) {
-				meshIds.push(mesh.id);
-			}
-		}
-		if (meshIds.length === 0) return;
-
-		// Update dirty state and queue
-		this._lastStaticLightingVersion = currentVersion;
-		this._lastStaticLightingMatrix = lightConfig.modelMatrix
-			? new Float32Array(lightConfig.modelMatrix)
-			: null;
-		this._lastCameraPosition = lightConfig.cameraPosition
-			? new Float32Array(lightConfig.cameraPosition)
-			: null;
-
-		this._workerPool.queueStaticLighting(meshIds, lightConfig);
-		SharedWorkerPool.scheduleFlush();
-	}
-
-	/**
-	 * Check if model matrix changed.
-	 * Compares rotation/scale (upper-left 3x3) AND translation (for spotlights).
-	 */
-	private _hasMatrixChanged(
-		current: Float32Array | null | undefined,
-		last: Float32Array | null
-	): boolean {
-		if (!current && !last) return false;
-		if (!current || !last) return true;
-		// Check rotation/scale (0,1,2,4,5,6,8,9,10) and translation (12,13,14)
-		for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]) {
-			if (Math.abs(last[i] - current[i]) > 0.0001) return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Check if camera position changed (for specular recalculation).
-	 */
-	private _hasCameraPositionChanged(
-		current: Float32Array | number[] | null | undefined
-	): boolean {
-		const last = this._lastCameraPosition;
-		if (!current && !last) return false;
-		if (!current || !last) return true;
-		for (let i = 0; i < 3; i++) {
-			if (Math.abs(last[i] - current[i]) > 0.0001) return true;
-		}
-		return false;
-	}
-
-	/**
-	 * Set the instance TRS matrix. Called when object position/rotation/scale changes.
-	 * Triggers worker transform for all static meshes if matrix changed.
-	 * @param matrix The instance TRS matrix (world space transform)
-	 * @param lightConfig Optional lighting config - if provided, lighting is calculated in the same worker pass
-	 */
-	setInstanceMatrix(matrix: Float32Array, lightConfig?: WorkerLightConfig | null): void {
-		// Check if matrix actually changed
-		if (this._lastInstanceMatrix && !this._hasInstanceMatrixChanged(matrix, this._lastInstanceMatrix)) {
-			return;
-		}
-
+	forceStaticTransformAndLighting(matrix: Float32Array, lightConfig: WorkerLightConfig): void {
 		this._instanceMatrix.set(matrix);
-		if (!this._lastInstanceMatrix) {
-			this._lastInstanceMatrix = new Float32Array(16);
-		}
-		this._lastInstanceMatrix.set(matrix);
-
-		// Queue all static meshes for transform (with optional lighting)
 		this._queueStaticTransforms(lightConfig);
-	}
-
-	/**
-	 * Check if instance matrix has changed (compares rotation/scale/translation).
-	 */
-	private _hasInstanceMatrixChanged(a: Float32Array, b: Float32Array): boolean {
-		// Compare relevant matrix elements (rotation/scale/translation)
-		const indices = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
-		for (const i of indices) {
-			if (Math.abs(a[i] - b[i]) > 0.0001) return true;
-		}
-		return false;
 	}
 
 	/**

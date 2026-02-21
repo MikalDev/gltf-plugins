@@ -1,7 +1,7 @@
 // Import types only (not runtime values) for TypeScript checking
 import type { GltfModel as GltfModelType } from "./gltf/GltfModel.js";
 import type { GltfMesh as GltfMeshType } from "./gltf/GltfMesh.js";
-import type { SharedWorkerPool as SharedWorkerPoolType } from "./gltf/TransformWorkerPool.js";
+import type { SharedWorkerPool as SharedWorkerPoolType, WorkerLightConfig } from "./gltf/TransformWorkerPool.js";
 import type { AnimationController as AnimationControllerType } from "./gltf/AnimationController.js";
 import type { mat4 as mat4Type, vec3 as vec3Type, quat as quatType } from "gl-matrix";
 import type * as LightingType from "./gltf/Lighting.js";
@@ -63,7 +63,6 @@ const PROP_BUILTIN_TYPE = 6;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempVec = vec3.create();
-const modelRotationMatrix = mat4.create(); // For lighting normal transformation
 
 // Degrees to radians conversion factor
 const DEG_TO_RAD = Math.PI / 180;
@@ -89,13 +88,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	// Instance TRS matrix for CPU-side vertex transformation
 	_instanceMatrix: Float32Array = mat4.create() as unknown as Float32Array;
-	_instanceMatrixDirty: boolean = true;
-
-	// Last position tracking for dirty detection (C3 position changes don't have setters we can override)
-	_lastX: number = 0;
-	_lastY: number = 0;
-	_lastZ: number = 0;
-	_lastAngle: number = 0;
 
 	// glTF model
 	_model: GltfModelType | null = null;
@@ -257,14 +249,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	}
 
 	/**
-	 * Mark instance transform as dirty, triggering CPU-side vertex transform on next tick.
-	 */
-	_markTransformDirty(): void
-	{
-		this._instanceMatrixDirty = true;
-	}
-
-	/**
 	 * Pre-multiply instance TRS matrix into each bone matrix.
 	 * This applies object position/rotation/scale to skinned vertices efficiently:
 	 * - Instead of transforming M vertices by instanceMatrix after skinning
@@ -302,205 +286,70 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	/**
 	 * Called once per frame when ticking is enabled.
-	 * Updates animation and ensures C3 redraws when model is loaded.
-	 * Supports frame skipping for performance - animation updates every (frameSkip + 1) frames
-	 * while maintaining correct animation speed via accumulated delta time.
-	 * When _frameSkipIncludesLighting is true (default), lighting is also skipped on skipped frames,
-	 * rendering from existing GPU buffers for maximum performance.
+	 * Updates animation and runs always-transform+lighting pass for static meshes.
+	 * No dirty-check heuristics — every shouldUpdate frame runs the full pass.
 	 */
 	_tick(): void
 	{
 		if (!this._model?.isLoaded) return;
 
-		// Check for position/angle changes (C3 properties we can't override)
-		if (this.x !== this._lastX || this.y !== this._lastY ||
-			this.totalZ !== this._lastZ || this.angle !== this._lastAngle)
-		{
-			this._lastX = this.x;
-			this._lastY = this.y;
-			this._lastZ = this.totalZ;
-			this._lastAngle = this.angle;
-			this._instanceMatrixDirty = true;
-		}
-
-		// Update instance matrix if TRS changed (triggers CPU-side vertex transform)
-		// SOLID: Instance owns lightConfig, so we pass it here rather than model trying to access it
-		// KISS: Track if we did transform+lighting to avoid duplicate lighting work later
-		let didTransformWithLighting = false;
-		if (this._instanceMatrixDirty)
-		{
-			this._buildInstanceMatrix();
-			const lightConfig = this._buildLightConfig();
-			this._model.setInstanceMatrix(this._instanceMatrix, lightConfig);
-			this._instanceMatrixDirty = false;
-			didTransformWithLighting = lightConfig !== undefined;
-		}
-
-		// Always accumulate delta time for animation
 		const dt = this.runtime.dt;
 		this._accumulatedDt += dt;
 		this._frameCounter++;
 
-		// Determine effective frame skip: use distance-based LOD if enabled, else manual setting
 		const effectiveFrameSkip = this._distanceLodEnabled
 			? this._calculateDistanceFrameSkip()
 			: this._animationFrameSkip;
-
-		// Check if this frame should do a full update (animation + lighting)
-		// Stagger offset spreads instances across frames so they don't all update simultaneously
 		const updateInterval = effectiveFrameSkip + 1;
 		const shouldUpdate = ((this._frameCounter + this._frameOffset) % updateInterval) === 0;
 
-		// Update animation if actively playing (not paused)
+		if (!shouldUpdate)
+		{
+			this.runtime.sdk.updateRender();
+			return;
+		}
+
+		// Always rebuild instance matrix from current TRS — no dirty check
+		this._buildInstanceMatrix();
+
+		// Animation update (skinned meshes — lighting included via queueSkinning)
 		if (this._animationController?.isPlaying() && !this._animationController.isPaused())
 		{
-			if (shouldUpdate)
-			{
-				// Use accumulated delta time to maintain correct animation speed
-				this._animationController.update(this._accumulatedDt);
-
-				// Sync node hierarchy with animated joint transforms
-				this._model.updateJointNodes(this._animationController);
-
-				// Update static meshes under animated joints (uses node world matrices)
-				this._model.updateStaticMeshTransforms();
-
-				this._updateSkinnedMeshes();
-
-				// Reset accumulated delta time after update
-				this._accumulatedDt = 0;
-			}
+			this._animationController.update(this._accumulatedDt);
+			this._model.updateJointNodes(this._animationController);
+			this._model.updateStaticMeshTransforms();
+			this._updateSkinnedMeshes();
+			this._accumulatedDt = 0;
 		}
 		else
 		{
-			// Not playing or paused - reset accumulated time to avoid buildup
 			this._accumulatedDt = 0;
 		}
 
-		// Apply lighting only on update frames (when frameSkipIncludesLighting is true)
-		// On skipped frames, just render from existing GPU buffers for maximum performance
-		// KISS: Skip static mesh lighting if we already did transform+lighting this tick
-		if (shouldUpdate || !this._frameSkipIncludesLighting)
+		// Always transform + light all registered static meshes unless baked
+		if (!this._isLightingBaked())
 		{
-			this._applyLightingToAllMeshes(didTransformWithLighting);
+			const lightConfig = this._buildLightConfig();
+			this._model.forceStaticTransformAndLighting(this._instanceMatrix, lightConfig);
 		}
 
 		this.runtime.sdk.updateRender();
 	}
 
 	/**
-	 * Build full model matrix for lighting calculations.
-	 * Includes world position, rotation, scale, and local center offset.
-	 * This transforms vertices from model-space to world-space.
-	 */
-	_buildModelRotationMatrix(): Float32Array
-	{
-		mat4.identity(modelRotationMatrix);
-
-		// 1. T(position): translate to instance world position
-		vec3.set(tempVec, this.x, this.y, this.totalZ);
-		mat4.translate(modelRotationMatrix, modelRotationMatrix, tempVec);
-
-		// 2. R: apply C3 angle first, then quaternion rotation (same as _buildModelViewMatrix)
-		if (this.angle !== 0)
-		{
-			mat4.rotateZ(modelRotationMatrix, modelRotationMatrix, this.angle);
-		}
-
-		// Apply quaternion rotation
-		const rotMat = mat4.create();
-		mat4.fromQuat(rotMat, this._rotationQuat);
-		mat4.multiply(modelRotationMatrix, modelRotationMatrix, rotMat);
-
-		// 3. S: scale (lighting calculation will renormalize normals)
-		vec3.set(tempVec, this._scaleX, this._scaleY, this._scaleZ);
-		mat4.scale(modelRotationMatrix, modelRotationMatrix, tempVec);
-
-		// 4. T(-localCenter): shift model so its center is at origin
-		if (this._model)
-		{
-			const lc = this._model.localCenter;
-			vec3.set(tempVec, -lc[0], -lc[1], -lc[2]);
-			mat4.translate(modelRotationMatrix, modelRotationMatrix, tempVec);
-		}
-
-		return modelRotationMatrix as Float32Array;
-	}
-
-	/**
-	 * Apply lighting to all meshes. Uses dirty tracking internally.
-	 * Uses worker-based lighting for static meshes when available.
-	 * Skinned meshes get lighting via worker in _updateSkinnedMeshes - never use fallback.
-	 * @param skipStaticWithPool If true, skip static meshes registered with pool (already handled by transform+lighting)
-	 */
-	_applyLightingToAllMeshes(skipStaticWithPool: boolean = false): void
-	{
-		if (!this._model) return;
-		const meshes = this._model.meshes;
-		if (!meshes) return;
-
-		// KISS: If we already did transform+lighting for static meshes this tick, skip them here
-		// This avoids duplicate work when both transform and lighting changed
-		if (this._model.hasWorkerStaticLighting && !skipStaticWithPool)
-		{
-			const lightConfig = this._buildLightConfig();
-			if (lightConfig)
-			{
-				// Only queue non-baked meshes (worker filters internally via queueStaticLighting)
-				this._model.queueStaticLighting(lightConfig);
-			}
-		}
-		// Skinned meshes get lighting via queueSkinning in _updateSkinnedMeshes
-		if (this._model.hasWorkerStaticLighting)
-		{
-			return;
-		}
-
-		// Fallback: main thread lighting for static meshes only
-		// Skinned meshes always use worker lighting via _updateSkinnedMeshes
-		const rotMatrix = this._buildModelRotationMatrix();
-		const cameraPosition = this._getCameraPosition();
-		for (const mesh of meshes)
-		{
-			// Skip baked meshes
-			if (mesh.hasNormals && !mesh.isSkinned && !mesh.isBaked())
-			{
-				mesh.applyLighting(rotMatrix, false, cameraPosition);
-			}
-		}
-	}
-
-	/**
 	 * Build lighting configuration for worker-based lighting calculation.
 	 * Creates copies of all arrays to avoid race conditions with shared buffers.
 	 */
-	_buildLightConfig(): {
-		ambient: Float32Array;
-		lights: Array<{ enabled: boolean; color: Float32Array; intensity: number; direction: Float32Array; specularEnabled: boolean }>;
-		spotLights: Array<{ enabled: boolean; color: Float32Array; intensity: number; position: Float32Array; direction: Float32Array; innerConeAngle: number; outerConeAngle: number; falloffExponent: number; range: number; specularEnabled: boolean }>;
-		hemisphere?: { enabled: boolean; skyColor: Float32Array; groundColor: Float32Array; intensity: number };
-		specular?: { shininess: number; intensity: number; debugBlue?: boolean };
-		cameraPosition?: Float32Array;
-		modelMatrix: Float32Array;
-	} | undefined
+	_buildLightConfig(): WorkerLightConfig
 	{
 		const lights = Lighting.getAllLights();
 		const spotLights = Lighting.getAllSpotLights();
 		const hemi = Lighting.getHemisphereLight();
 		const specularConfig = Lighting.getSpecularConfig();
-		if (lights.length === 0 && spotLights.length === 0 && !hemi.enabled) return undefined;
 
 		// Copy all arrays to avoid race conditions - these are sent to workers
 		// after flush(), but the source buffers could change between now and then
-		const config: {
-			ambient: Float32Array;
-			lights: Array<{ enabled: boolean; color: Float32Array; intensity: number; direction: Float32Array; specularEnabled: boolean }>;
-			spotLights: Array<{ enabled: boolean; color: Float32Array; intensity: number; position: Float32Array; direction: Float32Array; innerConeAngle: number; outerConeAngle: number; falloffExponent: number; range: number; specularEnabled: boolean }>;
-			hemisphere?: { enabled: boolean; skyColor: Float32Array; groundColor: Float32Array; intensity: number };
-			specular?: { shininess: number; intensity: number; debugBlue?: boolean };
-			cameraPosition?: Float32Array;
-			modelMatrix: Float32Array;
-		} = {
+		const config: WorkerLightConfig = {
 			ambient: new Float32Array(Lighting.getAmbientLight()),
 			lights: lights.map(l => ({
 				enabled: l.enabled,
@@ -520,8 +369,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				falloffExponent: l.falloffExponent,
 				range: l.range,
 				specularEnabled: l.specularEnabled
-			})),
-			modelMatrix: new Float32Array(this._buildModelRotationMatrix())
+			}))
 		};
 
 		// Add hemisphere light if enabled
@@ -596,12 +444,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// This applies object position/rotation/scale to skinned vertices
 			const boneMatrices = this._animationController.getBoneMatrices();
 			const transformedBoneMatrices = this._applyInstanceMatrixToBones(boneMatrices);
-			// Set modelMatrix to null since normals are already in world space
-			// (instance transform is baked into bone matrices)
-			if (lightConfig)
-			{
-				lightConfig.modelMatrix = null as unknown as Float32Array;
-			}
 			this._model.queueSkinning(transformedBoneMatrices, lightConfig);
 			return;
 		}
@@ -710,8 +552,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._updateQuatFromEuler();
 		// Update C3 bounds (rotation affects world-space AABB)
 		this._updateInstanceBounds();
-		// Mark for CPU-side vertex transform
-		this._markTransformDirty();
 	}
 
 	// ========================================================================
@@ -758,9 +598,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds (rotation affects world-space AABB)
 		this._updateInstanceBounds();
-
-		// Mark for CPU-side vertex transform
-		this._markTransformDirty();
 	}
 
 	/**
@@ -875,9 +712,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds when scale changes
 		this._updateInstanceBounds();
-
-		// Mark for CPU-side vertex transform
-		this._markTransformDirty();
 	}
 
 	// Set non-uniform scale (per axis)
@@ -889,9 +723,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Update C3 bounds when Z scale changes
 		this._updateInstanceBounds();
-
-		// Mark for CPU-side vertex transform
-		this._markTransformDirty();
 	}
 
 	_isModelLoaded(): boolean
@@ -997,16 +828,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_bakeLighting(): void
 	{
 		if (!this._model) return;
-
-		// Apply lighting to all first
-		this._applyLightingToAllMeshes();
-
-		// Then bake all
 		for (const mesh of this._model.meshes)
 		{
 			if (mesh.hasNormals && !mesh.isSkinned)
 			{
-				mesh.bakeLighting(true);
+				mesh.bakeLighting();
 			}
 		}
 	}
@@ -1023,14 +849,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_refreshAndBakeLighting(): void
 	{
 		if (!this._model) return;
-		const rotMatrix = this._buildModelRotationMatrix();
-		const cameraPosition = this._getCameraPosition();
-
 		for (const mesh of this._model.meshes)
 		{
 			if (mesh.hasNormals && !mesh.isSkinned)
 			{
-				mesh.refreshLightingAndBake(rotMatrix, cameraPosition);
+				mesh.bakeLighting();
 			}
 		}
 	}

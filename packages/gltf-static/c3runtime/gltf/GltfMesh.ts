@@ -362,9 +362,7 @@ export class GltfMesh {
 		// Positions are needed for spotlight calculations
 		const positionsCopy = this._originalPositions ? new Float32Array(this._originalPositions) : null;
 		const normalsCopy = new Float32Array(this._originalNormals);
-		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy, (colors) => {
-			this._applyColors(colors);
-		});
+		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy);
 
 		this._isRegisteredStaticLightingWithPool = true;
 	}
@@ -753,22 +751,13 @@ export class GltfMesh {
 	}
 
 	/**
-	 * Bake (freeze) lighting on this mesh to improve performance.
-	 * Lighting will not recalculate until refreshed or unbaked.
-	 * @param freeMemory If true, free CPU-side normal buffers to save memory (~24 bytes per vertex)
+	 * Bake (freeze) lighting on this mesh.
+	 * Lighting will not recalculate until unbaked.
+	 * Normals are always preserved so unbaking works without a model reload.
 	 */
-	bakeLighting(freeMemory: boolean = true): void {
+	bakeLighting(): void {
 		if (!this._meshData || !this._hasNormals) return;
-
 		this._lightingBaked = true;
-
-		if (freeMemory) {
-			// Free CPU-side normals to save memory
-			this._originalNormals = null;
-			this._transformedNormals = null;
-			this._lastRotationMatrix = null;
-			this._lastCameraPosition = null;
-		}
 	}
 
 	/**
@@ -803,7 +792,7 @@ export class GltfMesh {
 		this.applyLighting(modelMatrix, true, cameraPosition);  // force=true
 
 		if (wasBaked) {
-			this.bakeLighting(true);  // Re-bake with memory optimization
+			this.bakeLighting();
 		}
 	}
 
