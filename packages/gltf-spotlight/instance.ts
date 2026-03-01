@@ -3,6 +3,7 @@ import type { EditorSpotlight } from "@gltf-plugins/shared-types";
 const PLUGIN_CLASS = SDK.Plugins.GltfSpotlight;
 
 // Property IDs matching plugin.ts order
+const PROP_LIGHT_TYPE = "light-type";
 const PROP_ENABLED = "enabled";
 const PROP_COLOR = "color";
 const PROP_INTENSITY = "intensity";
@@ -12,6 +13,9 @@ const PROP_RANGE = "range";
 const PROP_DIR_X = "dir-x";
 const PROP_DIR_Y = "dir-y";
 const PROP_DIR_Z = "dir-z";
+
+const COMBO_LIGHT_TYPE_SPOT  = 0;
+const COMBO_LIGHT_TYPE_POINT = 1;
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -60,20 +64,18 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		const y = this._inst.GetY();
 
 		// Get properties
+		const lightTypeIdx = this._inst.GetPropertyValue(PROP_LIGHT_TYPE) as number;
+		const isPoint = lightTypeIdx === COMBO_LIGHT_TYPE_POINT;
 		const enabled = this._inst.GetPropertyValue(PROP_ENABLED) as boolean;
 		const color = this._inst.GetPropertyValue(PROP_COLOR) as SDK.Color;
-		const outerAngle = this._inst.GetPropertyValue(PROP_OUTER_ANGLE) as number;
-		const dirX = this._inst.GetPropertyValue(PROP_DIR_X) as number;
-		const dirY = this._inst.GetPropertyValue(PROP_DIR_Y) as number;
 
 		// Get color components (0-1 range)
 		const r = color.getR();
 		const g = color.getG();
 		const b = color.getB();
 
-		// Draw spotlight icon - a square with a cone
+		// Draw light icon - a square
 		const size = 32;
-		const coneLength = 64;
 
 		iRenderer.SetColorFillMode();
 
@@ -87,22 +89,6 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		// Draw the light source as a square
 		iRenderer.Rect2(x - size / 2, y - size / 2, x + size / 2, y + size / 2);
 
-		// Draw the cone direction using direction properties (X/Y plane)
-		const halfAngle = outerAngle * DEG_TO_RAD / 2;
-		// Normalize direction for drawing
-		const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
-		const normX = dirLen > 0 ? dirX / dirLen : 1;
-		const normY = dirLen > 0 ? dirY / dirLen : 0;
-
-		// Center point of cone end
-		const endX = x + normX * coneLength;
-		const endY = y + normY * coneLength;
-
-		// Perpendicular offset for cone edges
-		const perpX = -normY * Math.tan(halfAngle) * coneLength;
-		const perpY = normX * Math.tan(halfAngle) * coneLength;
-
-		// Draw cone edges using smooth line mode with thicker lines
 		iRenderer.SetSmoothLineFillMode();
 		iRenderer.PushLineWidth(3);
 		if (enabled) {
@@ -110,9 +96,45 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		} else {
 			iRenderer.SetColorRgba(0.5, 0.5, 0.5, 0.3);
 		}
-		iRenderer.Line(x, y, endX + perpX, endY + perpY);
-		iRenderer.Line(x, y, endX - perpX, endY - perpY);
-		iRenderer.Line(endX + perpX, endY + perpY, endX - perpX, endY - perpY);
+
+		if (isPoint)
+		{
+			// Draw 8-ray omnidirectional gizmo for point light
+			const rayLength = 48;
+			for (let i = 0; i < 8; i++)
+			{
+				const angle = (i / 8) * Math.PI * 2;
+				const rx = Math.cos(angle) * rayLength;
+				const ry = Math.sin(angle) * rayLength;
+				iRenderer.Line(x, y, x + rx, y + ry);
+			}
+		}
+		else
+		{
+			// Draw the cone direction using direction properties (X/Y plane)
+			const outerAngle = this._inst.GetPropertyValue(PROP_OUTER_ANGLE) as number;
+			const dirX = this._inst.GetPropertyValue(PROP_DIR_X) as number;
+			const dirY = this._inst.GetPropertyValue(PROP_DIR_Y) as number;
+			const coneLength = 64;
+			const halfAngle = outerAngle * DEG_TO_RAD / 2;
+			// Normalize direction for drawing
+			const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
+			const normX = dirLen > 0 ? dirX / dirLen : 1;
+			const normY = dirLen > 0 ? dirY / dirLen : 0;
+
+			// Center point of cone end
+			const endX = x + normX * coneLength;
+			const endY = y + normY * coneLength;
+
+			// Perpendicular offset for cone edges
+			const perpX = -normY * Math.tan(halfAngle) * coneLength;
+			const perpY = normX * Math.tan(halfAngle) * coneLength;
+
+			iRenderer.Line(x, y, endX + perpX, endY + perpY);
+			iRenderer.Line(x, y, endX - perpX, endY - perpY);
+			iRenderer.Line(endX + perpX, endY + perpY, endX - perpX, endY - perpY);
+		}
+
 		iRenderer.PopLineWidth();
 
 		// Draw orange wireframe box outline around icon (Unity/Unreal style gizmo color)
@@ -143,6 +165,8 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 		const enabled = this._inst.GetPropertyValue(PROP_ENABLED) as boolean;
 
 		if (enabled) {
+			const lightTypeIdx = this._inst.GetPropertyValue(PROP_LIGHT_TYPE) as number;
+			const lightType = lightTypeIdx === COMBO_LIGHT_TYPE_POINT ? "point" : "spot";
 			const color = this._inst.GetPropertyValue(PROP_COLOR) as SDK.Color;
 			const dirX = this._inst.GetPropertyValue(PROP_DIR_X) as number;
 			const dirY = this._inst.GetPropertyValue(PROP_DIR_Y) as number;
@@ -151,6 +175,7 @@ PLUGIN_CLASS.Instance = class GltfSpotlightInstance extends SDK.IWorldInstanceBa
 			arr.push({
 				id: this._uniqueId,
 				enabled: true,
+				type: lightType,
 				position: [this._inst.GetX(), this._inst.GetY(), this._inst.GetZElevation()],
 				direction: [dirX, dirY, dirZ],
 				color: [color.getR(), color.getG(), color.getB()],

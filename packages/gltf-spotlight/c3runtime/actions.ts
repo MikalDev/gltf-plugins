@@ -2,6 +2,11 @@ import type { SDKInstanceClass } from "./instance.ts";
 
 C3.Plugins.GltfSpotlight.Acts =
 {
+	SetLightType(this: SDKInstanceClass, typeIdx: number): void
+	{
+		this._SetLightType(typeIdx);
+	},
+
 	SetEnabled(this: SDKInstanceClass, enabled: number): void
 	{
 		this._SetEnabled(enabled);

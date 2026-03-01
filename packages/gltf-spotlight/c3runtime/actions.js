@@ -1,5 +1,8 @@
 C3.Plugins.GltfSpotlight.Acts =
     {
+        SetLightType(typeIdx) {
+            this._SetLightType(typeIdx);
+        },
         SetEnabled(enabled) {
             this._SetEnabled(enabled);
         },

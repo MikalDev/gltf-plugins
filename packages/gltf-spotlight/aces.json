@@ -9,6 +9,21 @@
 		],
 		"actions": [
 			{
+				"id": "set-light-type",
+				"scriptName": "SetLightType",
+				"highlight": false,
+				"params": [
+					{
+						"id": "light-type",
+						"type": "combo",
+						"items": [
+							"spot",
+							"point"
+						]
+					}
+				]
+			},
+			{
 				"id": "set-enabled",
 				"scriptName": "SetEnabled",
 				"highlight": false,

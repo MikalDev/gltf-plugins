@@ -1,13 +1,20 @@
+// Light type constants
+const LIGHT_TYPE_SPOT = "spot";
+const LIGHT_TYPE_POINT = "point";
+// Combo index for the LightType property (must match plugin.ts items order: ["spot", "point"])
+const COMBO_LIGHT_TYPE_SPOT = 0;
+const COMBO_LIGHT_TYPE_POINT = 1;
 // Property indices matching plugin.ts order
-const PROP_ENABLED = 0;
-const PROP_COLOR = 1;
-const PROP_INTENSITY = 2;
-const PROP_INNER_ANGLE = 3;
-const PROP_OUTER_ANGLE = 4;
-const PROP_RANGE = 5;
-const PROP_DIR_X = 6;
-const PROP_DIR_Y = 7;
-const PROP_DIR_Z = 8;
+const PROP_LIGHT_TYPE = 0;
+const PROP_ENABLED = 1;
+const PROP_COLOR = 2;
+const PROP_INTENSITY = 3;
+const PROP_INNER_ANGLE = 4;
+const PROP_OUTER_ANGLE = 5;
+const PROP_RANGE = 6;
+const PROP_DIR_X = 7;
+const PROP_DIR_Y = 8;
+const PROP_DIR_Z = 9;
 /**
  * Get the Lighting API if available (glTF Static loaded)
  */
@@ -18,6 +25,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
     constructor() {
         super();
         this._lightId = -1;
+        this._lightType = LIGHT_TYPE_SPOT;
         this._enabled = true;
         this._color = [1, 1, 1];
         this._intensity = 1;
@@ -34,6 +42,8 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._needsUpdate = true;
         const properties = this._getInitProperties();
         if (properties) {
+            // PROP_LIGHT_TYPE is combo: COMBO_LIGHT_TYPE_SPOT=0, COMBO_LIGHT_TYPE_POINT=1
+            this._lightType = properties[PROP_LIGHT_TYPE] === COMBO_LIGHT_TYPE_POINT ? LIGHT_TYPE_POINT : LIGHT_TYPE_SPOT;
             this._enabled = properties[PROP_ENABLED];
             // Color comes as [r, g, b] array already in 0-1 range (SDK v2)
             this._color = properties[PROP_COLOR];
@@ -45,7 +55,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
             this._dirY = properties[PROP_DIR_Y];
             this._dirZ = properties[PROP_DIR_Z];
         }
-        this._createSpotLight();
+        this._createLight();
         // Enable ticking so _tick() is called each frame
         this._setTicking(true);
     }
@@ -58,20 +68,23 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         }
         super._release();
     }
-    _createSpotLight() {
+    _createLight() {
         const Lighting = getLightingAPI();
         if (!Lighting)
             return; // glTF Static not loaded yet
-        // Create spotlight using Lighting API with direction from properties
-        // Use totalZ to account for parent hierarchy
-        this._lightId = Lighting.createSpotLight(this.x, this.y, this.totalZ, this._dirX, this._dirY, this._dirZ, this._innerAngle, this._outerAngle, 1.0, // falloffExponent
-        this._range);
-        // Set additional properties
+        if (this._lightType === LIGHT_TYPE_POINT) {
+            this._lightId = Lighting.createPointLight(this.x, this.y, this.totalZ, this._range);
+        }
+        else {
+            this._lightId = Lighting.createSpotLight(this.x, this.y, this.totalZ, this._dirX, this._dirY, this._dirZ, this._innerAngle, this._outerAngle, 1.0, // falloffExponent
+            this._range);
+        }
+        // Set common properties
         Lighting.setSpotLightEnabled(this._lightId, this._enabled);
         Lighting.setSpotLightColor(this._lightId, this._color[0], this._color[1], this._color[2]);
         Lighting.setSpotLightIntensity(this._lightId, this._intensity);
     }
-    _updateSpotLight() {
+    _updateLight() {
         const Lighting = getLightingAPI();
         // If API not available yet, try to create the light
         if (!Lighting) {
@@ -79,18 +92,21 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         }
         // If light not created yet (API became available), create it now
         if (this._lightId < 0) {
-            this._createSpotLight();
+            this._createLight();
             return;
         }
-        // Update via Lighting API
-        // Use totalZ to account for parent hierarchy
+        // Update common properties via Lighting API
+        Lighting.setSpotLightType(this._lightId, this._lightType);
         Lighting.setSpotLightEnabled(this._lightId, this._enabled);
         Lighting.setSpotLightColor(this._lightId, this._color[0], this._color[1], this._color[2]);
         Lighting.setSpotLightIntensity(this._lightId, this._intensity);
         Lighting.setSpotLightPosition(this._lightId, this.x, this.y, this.totalZ);
-        Lighting.setSpotLightDirection(this._lightId, this._dirX, this._dirY, this._dirZ);
-        Lighting.setSpotLightConeAngles(this._lightId, this._innerAngle, this._outerAngle);
         Lighting.setSpotLightRange(this._lightId, this._range);
+        // Spotlight-specific updates (skipped for point lights)
+        if (this._lightType !== LIGHT_TYPE_POINT) {
+            Lighting.setSpotLightDirection(this._lightId, this._dirX, this._dirY, this._dirZ);
+            Lighting.setSpotLightConeAngles(this._lightId, this._innerAngle, this._outerAngle);
+        }
     }
     _tick() {
         // Check if position changed or update is needed
@@ -105,10 +121,17 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
             this._lastY = currentY;
             this._lastZ = currentZ;
             this._needsUpdate = false;
-            this._updateSpotLight();
+            this._updateLight();
         }
     }
     // === Actions ===
+    _SetLightType(typeIdx) {
+        this._lightType = typeIdx === COMBO_LIGHT_TYPE_POINT ? LIGHT_TYPE_POINT : LIGHT_TYPE_SPOT;
+        const Lighting = getLightingAPI();
+        if (Lighting && this._lightId >= 0) {
+            Lighting.setSpotLightType(this._lightId, this._lightType);
+        }
+    }
     _SetEnabled(enabled) {
         this._enabled = (enabled === 1);
         const Lighting = getLightingAPI();
@@ -133,14 +156,14 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
     _SetInnerAngle(angle) {
         this._innerAngle = angle;
         const Lighting = getLightingAPI();
-        if (Lighting && this._lightId >= 0) {
+        if (Lighting && this._lightId >= 0 && this._lightType !== LIGHT_TYPE_POINT) {
             Lighting.setSpotLightConeAngles(this._lightId, this._innerAngle, this._outerAngle);
         }
     }
     _SetOuterAngle(angle) {
         this._outerAngle = angle;
         const Lighting = getLightingAPI();
-        if (Lighting && this._lightId >= 0) {
+        if (Lighting && this._lightId >= 0 && this._lightType !== LIGHT_TYPE_POINT) {
             Lighting.setSpotLightConeAngles(this._lightId, this._innerAngle, this._outerAngle);
         }
     }
@@ -156,7 +179,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._dirY = y;
         this._dirZ = z;
         const Lighting = getLightingAPI();
-        if (Lighting && this._lightId >= 0) {
+        if (Lighting && this._lightId >= 0 && this._lightType !== LIGHT_TYPE_POINT) {
             Lighting.setSpotLightDirection(this._lightId, x, y, z);
         }
     }
@@ -201,6 +224,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
     // === Save/Load ===
     _saveToJson() {
         return {
+            "lightType": this._lightType,
             "enabled": this._enabled,
             "color": this._color,
             "intensity": this._intensity,
@@ -214,6 +238,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
     }
     _loadFromJson(o) {
         const data = o;
+        this._lightType = data["lightType"] ?? LIGHT_TYPE_SPOT;
         this._enabled = data["enabled"];
         this._color = data["color"];
         this._intensity = data["intensity"];

@@ -5,13 +5,21 @@
 		"plugins": {
 			"gltfspotlight": {
 				"name": "MeshLight",
-				"description": "Spotlight for 3D mesh models.",
+				"description": "Spotlight or point light for 3D mesh models.",
 				"help-url": "https://github.com/MikalDev/gltf-plugins",
 				"category": "3D",
 				"properties": {
+					"light-type": {
+						"name": "Light type",
+						"desc": "Spot: cone-shaped light. Point: omnidirectional light.",
+						"items": {
+							"spot": "Spot",
+							"point": "Point"
+						}
+					},
 					"enabled": {
 						"name": "Enabled",
-						"desc": "Whether this spotlight is active."
+						"desc": "Whether this light is active."
 					},
 					"color": {
 						"name": "Color",
@@ -23,11 +31,11 @@
 					},
 					"inner-angle": {
 						"name": "Inner angle",
-						"desc": "Full intensity cone angle in degrees."
+						"desc": "Full intensity cone angle in degrees. (Spotlight only)"
 					},
 					"outer-angle": {
 						"name": "Outer angle",
-						"desc": "Falloff cone angle in degrees."
+						"desc": "Falloff cone angle in degrees. (Spotlight only)"
 					},
 					"range": {
 						"name": "Range",
@@ -35,15 +43,15 @@
 					},
 					"dir-x": {
 						"name": "Direction X",
-						"desc": "X component of the spotlight direction vector."
+						"desc": "X component of the spotlight direction vector. (Spotlight only)"
 					},
 					"dir-y": {
 						"name": "Direction Y",
-						"desc": "Y component of the spotlight direction vector."
+						"desc": "Y component of the spotlight direction vector. (Spotlight only)"
 					},
 					"dir-z": {
 						"name": "Direction Z",
-						"desc": "Z component of the spotlight direction vector."
+						"desc": "Z component of the spotlight direction vector. (Spotlight only)"
 					}
 				},
 				"aceCategories": {
@@ -66,6 +74,21 @@
 					}
 				},
 				"actions": {
+					"set-light-type": {
+						"list-name": "Set light type",
+						"display-text": "Set {my} type to [b]{0}[/b]",
+						"description": "Switch between spotlight (cone) and point light (omnidirectional).",
+						"params": {
+							"light-type": {
+								"name": "Light type",
+								"desc": "The light type to set.",
+								"items": {
+									"spot": "Spot",
+									"point": "Point"
+								}
+							}
+						}
+					},
 					"set-enabled": {
 						"list-name": "Set enabled",
 						"display-text": "Set {my} [b]{0}[/b]",

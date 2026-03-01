@@ -26,6 +26,7 @@ const PLUGIN_CLASS = SDK.Plugins.GltfSpotlight = class GltfSpotlightPlugin exten
 		SDK.Lang.PushContext(".properties");
 
 		this._info.SetProperties([
+			new SDK.PluginProperty("combo", "light-type", { "items": ["spot", "point"], "initialValue": "spot" }),
 			new SDK.PluginProperty("check", "enabled", true),
 			new SDK.PluginProperty("color", "color", [255, 255, 255]),
 			new SDK.PluginProperty("float", "intensity", 1.0),
