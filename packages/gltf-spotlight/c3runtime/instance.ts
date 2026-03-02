@@ -19,6 +19,7 @@ interface LightingAPI {
 	setSpotLightConeAngles(id: number, innerAngle: number, outerAngle: number): void;
 	setSpotLightRange(id: number, range: number): void;
 	setSpotLightType(id: number, type: string): void;
+	setSpotLightShadow(id: number, enabled: boolean): void;
 }
 
 declare global {
@@ -46,6 +47,7 @@ const PROP_RANGE       = 6;
 const PROP_DIR_X       = 7;
 const PROP_DIR_Y       = 8;
 const PROP_DIR_Z       = 9;
+const PROP_SHADOW      = 10;
 
 /**
  * Get the Lighting API if available (glTF Static loaded)
@@ -67,6 +69,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 	_dirX: number = 1;
 	_dirY: number = 0;
 	_dirZ: number = 0;
+	_shadow: boolean = false;
 
 	// Dirty tracking for position updates
 	_lastX: number = NaN;
@@ -93,6 +96,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 			this._dirX = properties[PROP_DIR_X] as number;
 			this._dirY = properties[PROP_DIR_Y] as number;
 			this._dirZ = properties[PROP_DIR_Z] as number;
+			this._shadow = (properties[PROP_SHADOW] as boolean) ?? false;
 		}
 
 		this._createLight();
@@ -142,6 +146,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		Lighting.setSpotLightEnabled(this._lightId, this._enabled);
 		Lighting.setSpotLightColor(this._lightId, this._color[0], this._color[1], this._color[2]);
 		Lighting.setSpotLightIntensity(this._lightId, this._intensity);
+		Lighting.setSpotLightShadow(this._lightId, this._shadow);
 	}
 
 	_updateLight(): void
@@ -168,6 +173,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		Lighting.setSpotLightIntensity(this._lightId, this._intensity);
 		Lighting.setSpotLightPosition(this._lightId, this.x, this.y, this.totalZ);
 		Lighting.setSpotLightRange(this._lightId, this._range);
+		Lighting.setSpotLightShadow(this._lightId, this._shadow);
 
 		// Spotlight-specific updates (skipped for point lights)
 		if (this._lightType !== LIGHT_TYPE_POINT)
@@ -360,7 +366,8 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 			"range": this._range,
 			"dirX": this._dirX,
 			"dirY": this._dirY,
-			"dirZ": this._dirZ
+			"dirZ": this._dirZ,
+			"shadow": this._shadow
 		};
 	}
 
@@ -377,6 +384,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
 		this._dirX = (data["dirX"] as number) ?? 1;
 		this._dirY = (data["dirY"] as number) ?? 0;
 		this._dirZ = (data["dirZ"] as number) ?? 0;
+		this._shadow = (data["shadow"] as boolean) ?? false;
 		// Force full update on next tick
 		this._needsUpdate = true;
 	}

@@ -52,6 +52,10 @@
 					"dir-z": {
 						"name": "Direction Z",
 						"desc": "Z component of the spotlight direction vector. (Spotlight only)"
+					},
+					"shadow": {
+						"name": "Shadow",
+						"desc": "Enable physics-based occlusion: GltfStatic raycasts to this light each frame and dims it to 20% when blocked by a physics body."
 					}
 				},
 				"aceCategories": {

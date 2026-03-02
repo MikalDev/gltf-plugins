@@ -5,7 +5,7 @@
 	"type": "plugin",
 	"name": "MeshLight",
 	"id": "GltfSpotlight",
-	"version": "1.2.0.0",
+	"version": "1.3.0.0",
 	"author": "Mikal",
 	"website": "https://github.com/MikalDev/gltf-plugins",
 	"documentation": "https://github.com/MikalDev/gltf-plugins",

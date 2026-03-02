@@ -12,7 +12,8 @@ import * as BuiltinModels from "./BuiltinModels.js";
 export { GltfModel, GltfMesh, GltfNode, TransformWorkerPool, SharedWorkerPool, AnimationController, modelCache, mat4, quat, vec3, Lighting, BuiltinModels };
 export type { GltfModelStats, GltfModelOptions } from "./GltfModel.js";
 export type { AnimationMeshData, AnimationControllerOptions } from "./AnimationController.js";
-export type { DirectionalLight, HemisphereLight, ColorBlendMode } from "./Lighting.js";
+export type { DirectionalLight, HemisphereLight, ColorBlendMode, LightType } from "./Lighting.js";
+export { LIGHT_TYPE_SPOT, LIGHT_TYPE_POINT } from "./Lighting.js";
 export type {
 	CachedModelData,
 	CachedSkinData,

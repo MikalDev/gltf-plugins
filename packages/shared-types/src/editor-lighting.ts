@@ -2,6 +2,9 @@
  * Shared interfaces for editor lighting communication via globalThis
  */
 
+/** Positional light mode: cone-restricted spotlight or omnidirectional point light */
+export type LightType = "spot" | "point";
+
 /**
  * Spotlight configuration exposed by GltfSpotlight editor instances
  */
@@ -24,6 +27,8 @@ export interface EditorSpotlight {
     outerAngle: number;
     /** Distance falloff range (0 = infinite) */
     range: number;
+    /** Light type: "spot" applies cone attenuation, "point" illuminates all directions */
+    type?: LightType;
 }
 
 /**

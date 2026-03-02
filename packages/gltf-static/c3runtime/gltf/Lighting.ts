@@ -26,6 +26,11 @@ export interface DirectionalLight {
 	specularEnabled: boolean;
 }
 
+/** Positional light mode: cone-restricted spotlight or omnidirectional point light */
+export type LightType = "spot" | "point";
+export const LIGHT_TYPE_SPOT:  LightType = "spot";
+export const LIGHT_TYPE_POINT: LightType = "point";
+
 export interface SpotLight {
 	/** Unique identifier */
 	id: number;
@@ -49,6 +54,10 @@ export interface SpotLight {
 	range: number;
 	/** Whether this light contributes specular highlights */
 	specularEnabled: boolean;
+	/** Light type: "spot" applies cone attenuation, "point" illuminates all directions */
+	type?: LightType;
+	/** Whether physics-based shadow/occlusion raycasting is enabled for this light */
+	shadow?: boolean;
 }
 
 // ============================================================================
@@ -562,6 +571,57 @@ export function createSpotLight(
 }
 
 /**
+ * Create a point light (illuminates in all directions, no cone restriction).
+ * Point lights share the spotlight ID namespace and all setSpotLight* functions work on them.
+ * @param posX Position X
+ * @param posY Position Y
+ * @param posZ Position Z
+ * @param range Maximum range (default 0 = infinite)
+ * @returns Light ID
+ */
+export function createPointLight(
+	posX: number, posY: number, posZ: number,
+	range: number = 0
+): number {
+	const id = globalThis.gltfLightIdCounter++;
+
+	const light: SpotLight = {
+		id,
+		enabled: true,
+		color: new Float32Array([1, 1, 1]),
+		intensity: 1.0,
+		position: new Float32Array([posX, posY, posZ]),
+		direction: new Float32Array([0, -1, 0]),  // Dummy direction (not used for point lights)
+		innerConeAngle: 0,
+		outerConeAngle: Math.PI,
+		falloffExponent: 1.0,
+		range: Math.max(0, range),
+		specularEnabled: true,
+		type: LIGHT_TYPE_POINT
+	};
+
+	globalThis.gltfSpotLights.push(light);
+	_markDirty();
+	return id;
+}
+
+/**
+ * Set the type of a spotlight/point light.
+ * @param id Light ID
+ * @param type "spot" for cone-restricted spotlight, "point" for omnidirectional point light
+ */
+export function setSpotLightType(id: number, type: LightType): void {
+	const light = getSpotLight(id);
+	if (!light) return;
+	// Treat undefined (lights created by createSpotLight) as "spot"
+	const currentType = light.type ?? "spot";
+	if (currentType !== type) {
+		light.type = type;
+		_markDirty();
+	}
+}
+
+/**
  * Get a spotlight by ID.
  */
 export function getSpotLight(id: number): SpotLight | undefined {
@@ -706,6 +766,20 @@ export function setSpotLightRange(id: number, range: number): void {
 	if (light) {
 		light.range = Math.max(0, range);
 		_markDirty();
+	}
+}
+
+/**
+ * Enable or disable physics-based shadow/occlusion raycasting for a spotlight.
+ * When enabled, GltfStatic raycasts from itself to this light each frame and
+ * reduces its effective intensity when occluded by a physics body.
+ * Note: shadow is read by GltfStatic's raycast logic, not the lighting shader,
+ * so no lighting version bump is needed.
+ */
+export function setSpotLightShadow(id: number, enabled: boolean): void {
+	const light = getSpotLight(id);
+	if (light) {
+		light.shadow = enabled;
 	}
 }
 
@@ -928,26 +1002,28 @@ export function calculateMeshLighting(
 				const toVertY = dy * invDist;
 				const toVertZ = dz * invDist;
 
-				// Angular falloff: dot product of spot direction and light-to-vertex
-				// spot.direction points in the direction the light shines
-				const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
+				// Angular falloff (skipped for point lights)
+				let angularAtten = 1;
+				if (spot.type !== LIGHT_TYPE_POINT) {
+					// spot.direction points in the direction the light shines
+					const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
 
-				// Precompute cone angle cosines
-				const innerCos = Math.cos(spot.innerConeAngle);
-				const outerCos = Math.cos(spot.outerConeAngle);
+					// Precompute cone angle cosines
+					const innerCos = Math.cos(spot.innerConeAngle);
+					const outerCos = Math.cos(spot.outerConeAngle);
 
-				// Outside outer cone - no contribution
-				if (cosAngle <= outerCos) continue;
+					// Outside outer cone - no contribution
+					if (cosAngle <= outerCos) continue;
 
-				// Calculate angular attenuation
-				let angularAtten: number;
-				if (cosAngle >= innerCos) {
-					// Inside inner cone - full intensity
-					angularAtten = 1;
-				} else {
-					// In penumbra - smooth falloff
-					const t = (cosAngle - outerCos) / (innerCos - outerCos);
-					angularAtten = Math.pow(t, spot.falloffExponent);
+					// Calculate angular attenuation
+					if (cosAngle >= innerCos) {
+						// Inside inner cone - full intensity
+						angularAtten = 1;
+					} else {
+						// In penumbra - smooth falloff
+						const t = (cosAngle - outerCos) / (innerCos - outerCos);
+						angularAtten = Math.pow(t, spot.falloffExponent);
+					}
 				}
 
 				// Distance attenuation
@@ -993,7 +1069,7 @@ export function calculateMeshLighting(
 							// Debug mode: show blue regardless of NdotH sign
 							if (specular.debugBlue) {
 								if (Math.abs(NdotH) > 0.01) {
-									b -= 1.0;
+									b += 1.0;
 								}
 							} else {
 								// Clamp to avoid NaN from negative values with fractional exponents

@@ -66,6 +66,9 @@ const tempVec = vec3.create();
 
 // Degrees to radians conversion factor
 const DEG_TO_RAD = Math.PI / 180;
+
+/** Intensity multiplier applied to a spotlight when a shadow raycast detects occlusion. */
+const SHADOW_OCCLUSION_FACTOR = 0.2;
 const RAD_TO_DEG = 180 / Math.PI;
 
 C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInstanceBase
@@ -112,6 +115,13 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	// Physics integration
 	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
+
+	// Per-light occlusion cache: stores intensity factor, pre-built raycast tag, and result key.
+	// Built lazily on first encounter; tag/resultKey never change so no per-tick string allocations.
+	_lightOcclusionCache: Map<number, { factor: number; tag: string; resultKey: string }> = new Map();
+
+	// Cached mikalCannon3dPhysics behavior reference: undefined = not yet checked, null = absent.
+	_cachedPhysBeh: object | null | undefined = undefined;
 
 	// Static counter for generating stagger offsets
 	static _instanceCounter: number = 0;
@@ -312,6 +322,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Always rebuild instance matrix from current TRS — no dirty check
 		this._buildInstanceMatrix();
 
+		// Update per-light occlusion via physics raycast (reads last tick's results, fires new ones)
+		this._updateLightOcclusion();
+
 		// Animation update (skinned meshes — lighting included via queueSkinning)
 		if (this._animationController?.isPlaying() && !this._animationController.isPaused())
 		{
@@ -334,6 +347,57 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		}
 
 		this.runtime.sdk.updateRender();
+	}
+
+	/**
+	 * Fire raycasts to each shadow-enabled spotlight and read results from the previous tick.
+	 * Uses the mikalCannon3dPhysics behavior attached to this instance.
+	 * Tag format: "gltfspot_<lightId>" — behavior auto-appends "_<uid>" on read.
+	 * Updates _lightOcclusionCache factor: SHADOW_OCCLUSION_FACTOR when occluded, 1.0 when clear.
+	 */
+	_updateLightOcclusion(): void
+	{
+		// Cache the behavior reference — behaviors are fixed after construction.
+		if (this._cachedPhysBeh === undefined)
+		{
+			this._cachedPhysBeh = (this as any).behaviors?.mikalCannon3dPhysics ?? null;
+		}
+		const physBeh = this._cachedPhysBeh as any;
+		if (!physBeh) return;
+
+		const spotLights = Lighting.getAllSpotLights();
+		for (const spot of spotLights)
+		{
+			if (!spot.enabled || !spot.shadow) continue;
+
+			// Range cull: skip raycast if this instance is outside the light's range.
+			if (spot.range > 0)
+			{
+				const dx = spot.position[0] - this.x;
+				const dy = spot.position[1] - this.y;
+				const dz = spot.position[2] - (this as any).zElevation;
+				if (dx * dx + dy * dy + dz * dz > spot.range * spot.range) continue;
+			}
+
+			// Build tag and result-key lazily — both are invariant for this instance+light pair.
+			let entry = this._lightOcclusionCache.get(spot.id);
+			if (!entry)
+			{
+				const tag = `gltfspot_${spot.id}`;
+				entry = { factor: 1.0, tag, resultKey: `${tag}_${this.uid}` };
+				this._lightOcclusionCache.set(spot.id, entry);
+			}
+
+			// Read result fired on the previous tick.
+			const result = physBeh.raycastResults?.get(entry.resultKey);
+			if (result !== undefined)
+			{
+				entry.factor = result.hasHit ? SHADOW_OCCLUSION_FACTOR : 1.0;
+			}
+
+			// Fire raycast for next tick.
+			physBeh._RaycastFromSelf(entry.tag, spot.position[0], spot.position[1], spot.position[2]);
+		}
 	}
 
 	/**
@@ -361,14 +425,16 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			spotLights: spotLights.map(l => ({
 				enabled: l.enabled,
 				color: new Float32Array(l.color),
-				intensity: l.intensity,
+				// Occlusion is resolved here (intensity scaled) so workers don't need the shadow flag.
+				intensity: l.intensity * (l.shadow ? (this._lightOcclusionCache.get(l.id)?.factor ?? 1.0) : 1.0),
 				position: new Float32Array(l.position),
 				direction: new Float32Array(l.direction),
 				innerConeAngle: l.innerConeAngle,
 				outerConeAngle: l.outerConeAngle,
 				falloffExponent: l.falloffExponent,
 				range: l.range,
-				specularEnabled: l.specularEnabled
+				specularEnabled: l.specularEnabled,
+				type: l.type
 			}))
 		};
 

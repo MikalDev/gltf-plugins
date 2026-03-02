@@ -15,6 +15,7 @@ const PROP_RANGE = 6;
 const PROP_DIR_X = 7;
 const PROP_DIR_Y = 8;
 const PROP_DIR_Z = 9;
+const PROP_SHADOW = 10;
 /**
  * Get the Lighting API if available (glTF Static loaded)
  */
@@ -35,6 +36,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._dirX = 1;
         this._dirY = 0;
         this._dirZ = 0;
+        this._shadow = false;
         // Dirty tracking for position updates
         this._lastX = NaN;
         this._lastY = NaN;
@@ -54,6 +56,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
             this._dirX = properties[PROP_DIR_X];
             this._dirY = properties[PROP_DIR_Y];
             this._dirZ = properties[PROP_DIR_Z];
+            this._shadow = properties[PROP_SHADOW] ?? false;
         }
         this._createLight();
         // Enable ticking so _tick() is called each frame
@@ -83,6 +86,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         Lighting.setSpotLightEnabled(this._lightId, this._enabled);
         Lighting.setSpotLightColor(this._lightId, this._color[0], this._color[1], this._color[2]);
         Lighting.setSpotLightIntensity(this._lightId, this._intensity);
+        Lighting.setSpotLightShadow(this._lightId, this._shadow);
     }
     _updateLight() {
         const Lighting = getLightingAPI();
@@ -102,6 +106,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         Lighting.setSpotLightIntensity(this._lightId, this._intensity);
         Lighting.setSpotLightPosition(this._lightId, this.x, this.y, this.totalZ);
         Lighting.setSpotLightRange(this._lightId, this._range);
+        Lighting.setSpotLightShadow(this._lightId, this._shadow);
         // Spotlight-specific updates (skipped for point lights)
         if (this._lightType !== LIGHT_TYPE_POINT) {
             Lighting.setSpotLightDirection(this._lightId, this._dirX, this._dirY, this._dirZ);
@@ -233,7 +238,8 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
             "range": this._range,
             "dirX": this._dirX,
             "dirY": this._dirY,
-            "dirZ": this._dirZ
+            "dirZ": this._dirZ,
+            "shadow": this._shadow
         };
     }
     _loadFromJson(o) {
@@ -248,6 +254,7 @@ C3.Plugins.GltfSpotlight.Instance = class GltfSpotlightInstance extends ISDKWorl
         this._dirX = data["dirX"] ?? 1;
         this._dirY = data["dirY"] ?? 0;
         this._dirZ = data["dirZ"] ?? 0;
+        this._shadow = data["shadow"] ?? false;
         // Force full update on next tick
         this._needsUpdate = true;
     }

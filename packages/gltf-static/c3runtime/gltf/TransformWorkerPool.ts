@@ -1,3 +1,5 @@
+import type { LightType } from "./Lighting.js";
+
 /**
  * Manages a pool of transform workers for parallel vertex processing.
  *
@@ -15,6 +17,8 @@ function debugLog(...args: unknown[]): void {
 
 // Inline worker code as string for blob URL creation (avoids separate file bundling)
 const WORKER_CODE = `
+const LIGHT_TYPE_POINT = "point";
+
 const meshCache = new Map();
 const skinnedMeshCache = new Map();
 const staticLightingCache = new Map();
@@ -218,19 +222,21 @@ function calculateLighting(positions, normals, outColors, posOffset, normalOffse
 				const toVertY = dy * invDist;
 				const toVertZ = dz * invDist;
 
-				// Angular falloff
-				const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
-				const innerCos = Math.cos(spot.innerConeAngle);
-				const outerCos = Math.cos(spot.outerConeAngle);
+				// Angular falloff (skipped for point lights)
+				let angularAtten = 1;
+				if (spot.type !== LIGHT_TYPE_POINT) {
+					const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
+					const innerCos = Math.cos(spot.innerConeAngle);
+					const outerCos = Math.cos(spot.outerConeAngle);
 
-				if (cosAngle <= outerCos) continue;
+					if (cosAngle <= outerCos) continue;
 
-				let angularAtten;
-				if (cosAngle >= innerCos) {
-					angularAtten = 1;
-				} else {
-					const t = (cosAngle - outerCos) / (innerCos - outerCos);
-					angularAtten = Math.pow(t, spot.falloffExponent);
+					if (cosAngle >= innerCos) {
+						angularAtten = 1;
+					} else {
+						const t = (cosAngle - outerCos) / (innerCos - outerCos);
+						angularAtten = Math.pow(t, spot.falloffExponent);
+					}
 				}
 
 				// Distance attenuation
@@ -642,6 +648,7 @@ export interface WorkerLightConfig {
 		falloffExponent: number;
 		range: number;
 		specularEnabled: boolean;
+		type?: LightType;
 	}>;
 	/** Hemisphere light (blends sky/ground colors based on normal.y) */
 	hemisphere?: {

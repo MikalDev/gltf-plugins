@@ -17,6 +17,36 @@ This provides a complete API for creating, configuring, and managing lights from
 
 All functions are accessed via `globalThis.GltfBundle.Lighting.*`
 
+### Point Light Functions
+
+Point lights illuminate in all directions with no cone restriction. They share the same ID namespace as spotlights, and all `setSpotLight*` functions work on point lights by ID.
+
+```javascript
+const Lighting = globalThis.GltfBundle.Lighting;
+
+// Create a point light (returns light ID)
+const pointId = Lighting.createPointLight(
+    posX, posY, posZ,   // Position
+    range               // Max range (default 0 = infinite)
+);
+
+// All setSpotLight* functions work on point lights:
+Lighting.setSpotLightEnabled(pointId, true);
+Lighting.setSpotLightColor(pointId, 1, 0.8, 0.6);
+Lighting.setSpotLightIntensity(pointId, 2.0);
+Lighting.setSpotLightPosition(pointId, x, y, z);
+Lighting.setSpotLightRange(pointId, 500);
+
+// Change type of an existing light
+Lighting.setSpotLightType(pointId, "spot");   // convert to spotlight
+Lighting.setSpotLightType(spotId, "point");   // convert to point light
+
+// Point lights appear in getAllSpotLights() with type: "point"
+Lighting.getAllSpotLights().filter(l => l.type === "point");
+```
+
+---
+
 ### Spotlight Functions
 
 ```javascript
