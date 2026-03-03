@@ -583,25 +583,10 @@ export function createPointLight(
 	posX: number, posY: number, posZ: number,
 	range: number = 0
 ): number {
-	const id = globalThis.gltfLightIdCounter++;
-
-	const light: SpotLight = {
-		id,
-		enabled: true,
-		color: new Float32Array([1, 1, 1]),
-		intensity: 1.0,
-		position: new Float32Array([posX, posY, posZ]),
-		direction: new Float32Array([0, -1, 0]),  // Dummy direction (not used for point lights)
-		innerConeAngle: 0,
-		outerConeAngle: Math.PI,
-		falloffExponent: 1.0,
-		range: Math.max(0, range),
-		specularEnabled: true,
-		type: LIGHT_TYPE_POINT
-	};
-
-	globalThis.gltfSpotLights.push(light);
-	_markDirty();
+	// Delegate to createSpotLight with a dummy direction, then mark as point type.
+	// Direction is ignored during lighting when type === LIGHT_TYPE_POINT.
+	const id = createSpotLight(posX, posY, posZ, 0, -1, 0, 0, 180, 1.0, range);
+	getSpotLight(id)!.type = LIGHT_TYPE_POINT;
 	return id;
 }
 
@@ -778,7 +763,7 @@ export function setSpotLightRange(id: number, range: number): void {
  */
 export function setSpotLightShadow(id: number, enabled: boolean): void {
 	const light = getSpotLight(id);
-	if (light) {
+	if (light && light.shadow !== enabled) {
 		light.shadow = enabled;
 	}
 }
@@ -1180,10 +1165,16 @@ export function debugLightingState(): void {
 
 	console.log("\nSpotlights (" + globalThis.gltfSpotLights.length + "):");
 	globalThis.gltfSpotLights.forEach((light, i) => {
-		console.log(`  [${i}] id=${light.id}, enabled=${light.enabled}, specularEnabled=${light.specularEnabled}`);
+		const typeLabel = light.type ?? "spot";
+		const shadowLabel = light.shadow ? "shadow=ON" : "shadow=off";
+		console.log(`  [${i}] id=${light.id}, type=${typeLabel}, enabled=${light.enabled}, ${shadowLabel}, specularEnabled=${light.specularEnabled}`);
 		console.log(`      color=[${Array.from(light.color)}], intensity=${light.intensity}`);
 		console.log(`      position=[${Array.from(light.position)}]`);
-		console.log(`      direction=[${Array.from(light.direction)}]`);
+		if (typeLabel !== "point") {
+			console.log(`      direction=[${Array.from(light.direction)}]`);
+			console.log(`      innerConeAngle=${(light.innerConeAngle * 180 / Math.PI).toFixed(1)}°, outerConeAngle=${(light.outerConeAngle * 180 / Math.PI).toFixed(1)}°`);
+		}
+		if (light.range > 0) console.log(`      range=${light.range}`);
 	});
 
 	console.log("=== END DEBUG STATE ===");

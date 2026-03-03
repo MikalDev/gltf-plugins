@@ -1237,6 +1237,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				const spot = spotlights[j];
 				if (!spot.enabled) continue;
 
+				// Pre-compute cone cosines once per light (constant for all vertices)
+				const isPoint = spot.type === "point";
+				const innerCos = isPoint ? 0 : Math.cos(spot.innerAngle * DEG_TO_RAD);
+				const outerCos = isPoint ? 0 : Math.cos(spot.outerAngle * DEG_TO_RAD);
+
 				// Vector from light to vertex
 				const dx = px - spot.position[0];
 				const dy = py - spot.position[1];
@@ -1252,29 +1257,23 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				const toVertY = dy * invDist;
 				const toVertZ = dz * invDist;
 
-				// Angular falloff: dot product of spot direction and light-to-vertex
-				const cosAngle = spot.direction[0] * toVertX +
-				                 spot.direction[1] * toVertY +
-				                 spot.direction[2] * toVertZ;
-
-				// Cone angle cosines
-				const innerCos = Math.cos(spot.innerAngle * DEG_TO_RAD);
-				const outerCos = Math.cos(spot.outerAngle * DEG_TO_RAD);
-
-				// Outside outer cone - no contribution
-				if (cosAngle <= outerCos) continue;
-
-				// Angular attenuation
-				let angularAtten: number;
-				if (cosAngle >= innerCos)
+				// Angular attenuation (skipped for point lights — illuminates all directions)
+				let angularAtten = 1;
+				if (!isPoint)
 				{
-					angularAtten = 1;  // Inside inner cone
-				}
-				else
-				{
-					// Penumbra falloff
-					const t = (cosAngle - outerCos) / (innerCos - outerCos);
-					angularAtten = t;  // Linear falloff (runtime uses pow with falloffExponent)
+					const cosAngle = spot.direction[0] * toVertX +
+					                 spot.direction[1] * toVertY +
+					                 spot.direction[2] * toVertZ;
+
+					// Outside outer cone - no contribution
+					if (cosAngle <= outerCos) continue;
+
+					if (cosAngle < innerCos)
+					{
+						// Penumbra falloff (linear; matches runtime with falloffExponent=1.0)
+						const t = (cosAngle - outerCos) / (innerCos - outerCos);
+						angularAtten = t;
+					}
 				}
 
 				// Distance attenuation

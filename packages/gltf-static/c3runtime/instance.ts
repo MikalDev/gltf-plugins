@@ -120,8 +120,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Built lazily on first encounter; tag/resultKey never change so no per-tick string allocations.
 	_lightOcclusionCache: Map<number, { factor: number; tag: string; resultKey: string }> = new Map();
 
-	// Cached mikalCannon3dPhysics behavior reference: undefined = not yet checked, null = absent.
-	_cachedPhysBeh: object | null | undefined = undefined;
+	// Cached Rapier3DPhysics behavior reference: undefined = not yet checked, null = absent.
+	_cachedPhysBeh: unknown = undefined;
 
 	// Static counter for generating stagger offsets
 	static _instanceCounter: number = 0;
@@ -351,7 +351,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	/**
 	 * Fire raycasts to each shadow-enabled spotlight and read results from the previous tick.
-	 * Uses the mikalCannon3dPhysics behavior attached to this instance.
+	 * Uses the Rapier3DPhysics behavior attached to this instance.
 	 * Tag format: "gltfspot_<lightId>" — behavior auto-appends "_<uid>" on read.
 	 * Updates _lightOcclusionCache factor: SHADOW_OCCLUSION_FACTOR when occluded, 1.0 when clear.
 	 */
@@ -360,7 +360,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Cache the behavior reference — behaviors are fixed after construction.
 		if (this._cachedPhysBeh === undefined)
 		{
-			this._cachedPhysBeh = (this as any).behaviors?.mikalCannon3dPhysics ?? null;
+			this._cachedPhysBeh = (this as any).behaviors?.Rapier3DPhysics ?? null;
 		}
 		const physBeh = this._cachedPhysBeh as any;
 		if (!physBeh) return;
@@ -375,7 +375,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			{
 				const dx = spot.position[0] - this.x;
 				const dy = spot.position[1] - this.y;
-				const dz = spot.position[2] - (this as any).zElevation;
+				const dz = spot.position[2] - this.totalZ;
 				if (dx * dx + dy * dy + dz * dz > spot.range * spot.range) continue;
 			}
 
@@ -2233,6 +2233,33 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 					}
 				]
 			});
+		}
+
+		// Shadow Occlusion section (only shown when any shadow lights exist)
+		const shadowLights = Lighting.getAllSpotLights().filter(l => l.shadow);
+		if (shadowLights.length > 0)
+		{
+			const occlusionProps: object[] = [
+				{
+					name: "Physics Behavior",
+					value: this._cachedPhysBeh !== undefined
+						? (this._cachedPhysBeh ? "found" : "NOT FOUND — shadow disabled")
+						: "(not yet checked)"
+				}
+			];
+			for (const light of shadowLights)
+			{
+				const entry = this._lightOcclusionCache.get(light.id);
+				let status: string;
+				if (!entry)
+					status = "(no raycast fired yet)";
+				else if (entry.factor < 1.0)
+					status = `OCCLUDED (${entry.factor.toFixed(2)}x)`;
+				else
+					status = "clear (1.0x)";
+				occlusionProps.push({ name: `Light ${light.id} [${light.type ?? "spot"}]`, value: status });
+			}
+			props.push({ title: "Shadow Occlusion", properties: occlusionProps });
 		}
 
 		return props;
