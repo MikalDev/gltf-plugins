@@ -1207,6 +1207,16 @@ class SharedWorkerPool {
 	private static _flushScheduled = false;
 
 	/**
+	 * Pre-warm the worker pool by creating workers early (e.g. at type onCreate),
+	 * so threads parse+compile WORKER_CODE before the first model load.
+	 * Does not increment refCount — acquire() still works normally afterward.
+	 */
+	static prewarm(): void {
+		if (SharedWorkerPool._instance) return;
+		SharedWorkerPool._instance = new TransformWorkerPool();
+	}
+
+	/**
 	 * Acquire reference to the shared pool. Creates pool on first call.
 	 */
 	static acquire(): TransformWorkerPool {

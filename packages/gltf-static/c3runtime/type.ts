@@ -9,6 +9,9 @@ C3.Plugins.GltfStatic.Type = class GltfStaticType extends (ISDKObjectTypeBase as
 
 	_onCreate(): void
 	{
+		// Pre-warm worker pool so threads parse+compile before first model load
+		globalThis.GltfBundle?.SharedWorkerPool?.prewarm();
+
 		// Load the image asset using the image info
 		const imageInfo = this.getImageInfo();
 		if (imageInfo)

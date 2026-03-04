@@ -54,6 +54,11 @@ C3.Plugins.GltfStatic.Cnds =
 		return true; // Trigger condition - always returns true when triggered
 	},
 
+	IsBlending(this: SDKInstanceClass): boolean
+	{
+		return this._isBlending();
+	},
+
 	// Bone attachment conditions
 	HasBone(this: SDKInstanceClass, name: string): boolean
 	{

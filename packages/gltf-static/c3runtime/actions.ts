@@ -119,6 +119,11 @@ C3.Plugins.GltfStatic.Acts =
 		this._setDistanceLodThresholds(near, far, maxSkip);
 	},
 
+	BlendToAnimation(this: SDKInstanceClass, name: string, duration: number, startTime: number): void
+	{
+		this._blendToAnimation(name, duration, startTime);
+	},
+
 	// Quaternion rotation actions
 	SetRotationQuaternion(this: SDKInstanceClass, json: string): void
 	{

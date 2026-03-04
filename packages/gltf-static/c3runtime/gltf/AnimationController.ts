@@ -105,6 +105,13 @@ export class AnimationController {
 	// Cached active channels (populated on play() to avoid lookup each frame)
 	private _activeChannels: ActiveChannel[] = [];
 
+	// Blend crossfade state (snapshot approach)
+	// At blendTo() time, current pose is frozen into _blendFromTransforms.
+	// During blend, new animation evaluates normally; result is lerped from snapshot toward it.
+	private _blendFromTransforms: JointTransform[] | null = null; // frozen pose snapshot
+	private _blendDuration: number = 0;                           // total crossfade seconds
+	private _blendElapsed: number = 0;                            // seconds into crossfade
+
 	// Pre-allocated temp vectors/matrices (reused each frame to avoid GC)
 	private readonly _tempVec3A: Float32Array;
 	private readonly _tempVec3B: Float32Array;
@@ -231,9 +238,53 @@ export class AnimationController {
 	}
 
 	/**
+	 * Crossfade to a new animation from the current pose snapshot.
+	 * The current pose is frozen at the moment of this call; the new animation
+	 * evaluates normally and is lerped in over `duration` seconds.
+	 * If duration is 0 or the animation is unknown, falls back to play().
+	 * @param name Animation name to blend to
+	 * @param duration Crossfade duration in seconds
+	 * @param startTime Optional start time in the new animation (default: 0)
+	 */
+	blendTo(name: string, duration: number, startTime = 0): void {
+		const anim = this._animationMap.get(name);
+		if (!anim) {
+			debugWarn(`BlendTo: animation "${name}" not found`);
+			return;
+		}
+
+		if (duration <= 0) {
+			this.play(name, startTime);
+			return;
+		}
+
+		// Snapshot current pose (allocate buffer lazily once)
+		if (!this._blendFromTransforms) {
+			this._allocateBlendFromTransforms();
+		}
+		this._copyJointTransforms(this._jointTransforms, this._blendFromTransforms!);
+
+		// Switch to new animation
+		this._currentAnimation = anim;
+		this._time = Math.max(0, Math.min(startTime, anim.duration));
+		this._isPlaying = true;
+		this._isPaused = false;
+		this._cacheActiveChannels(anim);
+
+		// Arm blend state
+		this._blendDuration = duration;
+		this._blendElapsed = 0;
+
+		debugLog(`BlendTo "${name}" over ${duration.toFixed(2)}s`);
+	}
+
+	/**
 	 * Internal: Start playing a specific animation.
 	 */
 	private _playAnimation(anim: CachedAnimationData, name: string, startTime: number): void {
+		// Cancel any active blend (instant switch)
+		if (this._blendDuration > 0) this._clearBlendState();
+
 		// Only reset if switching animations or explicitly restarting
 		const isNewAnimation = this._currentAnimation?.name !== name;
 
@@ -269,6 +320,7 @@ export class AnimationController {
 	stop(): void {
 		this._isPlaying = false;
 		this._isPaused = false;
+		this._clearBlendState();
 		debugLog("Stopped");
 	}
 
@@ -302,37 +354,43 @@ export class AnimationController {
 	 * @param deltaTime Time elapsed since last update in seconds
 	 */
 	update(deltaTime: number): void {
-		if (!this._isPlaying || this._isPaused || !this._currentAnimation) {
-			return;
-		}
+		if (!this._currentAnimation) return;
+
+		const isActivelyPlaying = this._isPlaying && !this._isPaused;
+		const hasActiveBlend = this._blendDuration > 0;
+
+		// Nothing to do if paused/stopped and no blend in progress
+		if (!isActivelyPlaying && !hasActiveBlend) return;
 
 		const duration = this._currentAnimation.duration;
 		if (duration <= 0) return;
 
-		// Advance time with playback rate
-		this._time += deltaTime * this.playbackRate;
+		if (isActivelyPlaying) {
+			// Advance time with playback rate
+			this._time += deltaTime * this.playbackRate;
 
-		// Handle looping (review suggestion: use subtraction, not modulo)
-		if (this.loop) {
-			while (this._time >= duration) {
-				this._time -= duration;
-			}
-			while (this._time < 0) {
-				this._time += duration;
-			}
-		} else {
-			// Clamp to duration
-			if (this._time >= duration) {
-				this._time = duration;
-				this._isPlaying = false;
-				if (this.onComplete) {
-					this.onComplete();
+			// Handle looping (review suggestion: use subtraction, not modulo)
+			if (this.loop) {
+				while (this._time >= duration) {
+					this._time -= duration;
 				}
-			} else if (this._time < 0) {
-				this._time = 0;
-				this._isPlaying = false;
-				if (this.onComplete) {
-					this.onComplete();
+				while (this._time < 0) {
+					this._time += duration;
+				}
+			} else {
+				// Clamp to duration — do NOT clear blend here; let it finish naturally
+				if (this._time >= duration) {
+					this._time = duration;
+					this._isPlaying = false;
+					if (this.onComplete) {
+						this.onComplete();
+					}
+				} else if (this._time < 0) {
+					this._time = 0;
+					this._isPlaying = false;
+					if (this.onComplete) {
+						this.onComplete();
+					}
 				}
 			}
 		}
@@ -341,6 +399,15 @@ export class AnimationController {
 		// (review suggestion: could optimize by tracking which joints have channels)
 		this._resetToBindPose();
 		this._evaluateAnimation(this._time);
+
+		// Apply crossfade blend if active (continues even after animation ends)
+		if (this._blendDuration > 0) {
+			this._blendElapsed += deltaTime;
+			const t = Math.min(this._blendElapsed / this._blendDuration, 1);
+			this._lerpJointTransforms(this._blendFromTransforms!, this._jointTransforms, t);
+			if (t >= 1) this._clearBlendState();
+		}
+
 		this._computeJointWorldMatrices();
 		this._computeBoneMatrices();
 
@@ -431,6 +498,22 @@ export class AnimationController {
 	 */
 	hasAnimation(name: string): boolean {
 		return this._animationMap.has(name);
+	}
+
+	/**
+	 * True while a crossfade blend is in progress.
+	 */
+	isBlending(): boolean {
+		return this._blendDuration > 0;
+	}
+
+	/**
+	 * Crossfade progress from 0 (start) to 1 (complete). Returns 0 when not blending.
+	 */
+	getBlendProgress(): number {
+		return this._blendDuration > 0
+			? Math.min(this._blendElapsed / this._blendDuration, 1)
+			: 0;
 	}
 
 	/**
@@ -620,6 +703,65 @@ export class AnimationController {
 	 */
 	hasJoint(name: string): boolean {
 		return this.getJointIndexByName(name) >= 0;
+	}
+
+	// ========================================================================
+	// Internal: Blend Helpers
+	// ========================================================================
+
+	/** Allocate _blendFromTransforms buffer (same structure as _jointTransforms). Called lazily. */
+	private _allocateBlendFromTransforms(): void {
+		const jointCount = this._skinData?.joints?.length ?? 0;
+		if (jointCount === 0) return;
+		this._blendFromTransforms = new Array(jointCount);
+		for (let i = 0; i < jointCount; i++) {
+			this._blendFromTransforms[i] = {
+				translation: new Float32Array(3),
+				rotation: new Float32Array(4),
+				scale: new Float32Array(3)
+			};
+		}
+	}
+
+	/** Copy all joint TRS values from src into dst (no allocation). */
+	private _copyJointTransforms(src: JointTransform[], dst: JointTransform[]): void {
+		for (let i = 0; i < src.length; i++) {
+			dst[i].translation.set(src[i].translation);
+			dst[i].rotation.set(src[i].rotation);
+			dst[i].scale.set(src[i].scale);
+		}
+	}
+
+	/**
+	 * Lerp/slerp each joint from `from` toward `inout` by factor t (0=from, 1=inout).
+	 * Writes blended result back into `inout` in place.
+	 */
+	private _lerpJointTransforms(from: JointTransform[], inout: JointTransform[], t: number): void {
+		const oneMinusT = 1 - t;
+		for (let i = 0; i < from.length; i++) {
+			const f = from[i];
+			const tgt = inout[i];
+
+			// Lerp translation
+			tgt.translation[0] = f.translation[0] * oneMinusT + tgt.translation[0] * t;
+			tgt.translation[1] = f.translation[1] * oneMinusT + tgt.translation[1] * t;
+			tgt.translation[2] = f.translation[2] * oneMinusT + tgt.translation[2] * t;
+
+			// Lerp scale
+			tgt.scale[0] = f.scale[0] * oneMinusT + tgt.scale[0] * t;
+			tgt.scale[1] = f.scale[1] * oneMinusT + tgt.scale[1] * t;
+			tgt.scale[2] = f.scale[2] * oneMinusT + tgt.scale[2] * t;
+
+			// Slerp rotation (use temp buffer to avoid aliasing — out and b must not overlap)
+			quat.slerp(this._tempQuatA as quat, f.rotation as quat, tgt.rotation as quat, t);
+			tgt.rotation.set(this._tempQuatA);
+		}
+	}
+
+	/** Reset blend counters. Does not free _blendFromTransforms (reused on next blend). */
+	private _clearBlendState(): void {
+		this._blendDuration = 0;
+		this._blendElapsed = 0;
 	}
 
 	// ========================================================================

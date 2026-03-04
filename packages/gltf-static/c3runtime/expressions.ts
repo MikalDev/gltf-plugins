@@ -98,6 +98,11 @@ C3.Plugins.GltfStatic.Exps =
 		return this._getAnimationProgress();
 	},
 
+	BlendProgress(this: SDKInstanceClass): number
+	{
+		return this._getBlendProgress();
+	},
+
 	AnimationNames(this: SDKInstanceClass): string
 	{
 		return this._getAnimationNamesJson();

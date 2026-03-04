@@ -124,6 +124,11 @@
 						"display-text": "On {my} animation finished",
 						"description": "Triggered when a non-looping animation finishes playing."
 					},
+					"is-blending": {
+						"list-name": "Is blending",
+						"display-text": "{my} is blending",
+						"description": "True while a crossfade transition is in progress."
+					},
 					"is-mesh-visible": {
 						"list-name": "Is mesh visible",
 						"display-text": "{my} mesh [b]{0}[/b] is visible",
@@ -458,6 +463,25 @@
 							}
 						}
 					},
+					"blend-to-animation": {
+						"list-name": "Blend to animation",
+						"display-text": "{my} blend to animation [b]{0}[/b] over [b]{1}[/b] seconds from [b]{2}[/b]s",
+						"description": "Crossfade from the current pose to a new animation over the given duration.",
+						"params": {
+							"name": {
+								"name": "Animation name",
+								"desc": "Name of the animation to blend to."
+							},
+							"duration": {
+								"name": "Duration",
+								"desc": "Crossfade duration in seconds. 0 = instant switch (same as Play Animation)."
+							},
+							"start-time": {
+								"name": "Start time",
+								"desc": "Time in seconds to start the new animation from (default 0)."
+							}
+						}
+					},
 					"set-distance-lod-thresholds": {
 						"list-name": "Set distance LOD thresholds",
 						"display-text": "{my} set distance LOD: full rate radius [b]{0}[/b], max skip at [b]{1}[/b], max skip [b]{2}[/b]",
@@ -699,6 +723,10 @@
 					"effective-frame-skip": {
 						"description": "Get the current effective frame skip value (accounting for distance LOD if enabled).",
 						"translated-name": "EffectiveFrameSkip"
+					},
+					"blend-progress": {
+						"description": "Crossfade progress from 0 (blend start) to 1 (blend complete). Returns 0 when not blending.",
+						"translated-name": "BlendProgress"
 					},
 					"bbox-width": {
 						"description": "Get the world-space bounding box width (X dimension with scale applied).",

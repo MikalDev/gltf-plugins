@@ -104,6 +104,7 @@ export class GltfModel {
 		return this._isLoaded;
 	}
 
+	/**
 	/** Bounding box center of all mesh positions (rotation/scale pivot) */
 	get localCenter(): Float32Array {
 		return this._localCenter;
@@ -479,7 +480,7 @@ export class GltfModel {
 				mesh.registerSkinnedWithPool(this._workerPool);
 				if (mesh.isRegisteredSkinnedWithPool) {
 					registeredCount++;
-				}
+					}
 			}
 		}
 
@@ -500,7 +501,7 @@ export class GltfModel {
 				mesh.registerStaticLightingWithPool(this._workerPool);
 				if (mesh.isRegisteredStaticLightingWithPool) {
 					registeredCount++;
-				}
+					}
 			}
 		}
 

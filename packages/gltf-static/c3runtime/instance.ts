@@ -99,6 +99,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Animation controller (created when model has skinning data)
 	_animationController: AnimationControllerType | null = null;
 	_skinnedMeshIndices: number[] = [];  // Maps animation controller mesh index to model mesh index
+	_pendingAnimation: string | null = null;  // Animation name requested before controller was ready
+	_pendingAnimationIndex: number | null = null; // Animation index requested before controller was ready
 
 	// Animation frame skip (performance optimization)
 	_animationFrameSkip: number = 0;      // How many frames to skip (0 = update every frame)
@@ -106,6 +108,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_accumulatedDt: number = 0;           // Accumulated delta time
 	_frameOffset: number = 0;             // Stagger offset to spread instances across frames
 	_frameSkipIncludesLighting: boolean = true;  // When true, lighting is also skipped on skipped frames
+	_tickCount: number = 0;               // Counts processed ticks; draw suppressed until >= 10 to cover worker cold-start
 
 	// Distance-based LOD for animation frame skip
 	_distanceLodEnabled: boolean = false;  // When true, frame skip is calculated from camera distance
@@ -325,18 +328,20 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Update per-light occlusion via physics raycast (reads last tick's results, fires new ones)
 		this._updateLightOcclusion();
 
-		// Animation update (skinned meshes — lighting included via queueSkinning)
+		// Advance animation time (only when playing)
 		if (this._animationController?.isPlaying() && !this._animationController.isPaused())
 		{
 			this._animationController.update(this._accumulatedDt);
+		}
+		this._accumulatedDt = 0;
+
+		// Apply joint/skinning transforms every tick — ensures instance TRS (scale, rotation)
+		// is applied to skinned meshes even before any animation has started
+		if (this._animationController && this._model)
+		{
 			this._model.updateJointNodes(this._animationController);
 			this._model.updateStaticMeshTransforms();
 			this._updateSkinnedMeshes();
-			this._accumulatedDt = 0;
-		}
-		else
-		{
-			this._accumulatedDt = 0;
 		}
 
 		// Always transform + light all registered static meshes unless baked
@@ -346,6 +351,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._model.forceStaticTransformAndLighting(this._instanceMatrix, lightConfig);
 		}
 
+		this._tickCount++;
 		this.runtime.sdk.updateRender();
 	}
 
@@ -556,41 +562,13 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_draw(renderer: IRenderer): void
 	{
-		if (this._model?.isLoaded)
+		if (this._model?.isLoaded && this._tickCount >= 10)
 		{
 			// Vertices are already in world space (transformed by worker)
 			// C3's camera matrix handles view/projection automatically
 			this._model.draw(renderer, this.runtime.tickCount);
 		}
-		else
-		{
-			// Fallback: draw placeholder texture while model is loading
-			const imageInfo = this.objectType.getImageInfo();
-			const texture = imageInfo.getTexture(renderer);
-
-			if (texture)
-			{
-				const quad = this.getBoundingQuad();
-
-				// Apply pixel rounding if enabled
-				if (this.runtime.isPixelRoundingEnabled)
-				{
-					const ox = Math.round(this.x) - this.x;
-					const oy = Math.round(this.y) - this.y;
-					quad.p1.x += ox;
-					quad.p1.y += oy;
-					quad.p2.x += ox;
-					quad.p2.y += oy;
-					quad.p3.x += ox;
-					quad.p3.y += oy;
-					quad.p4.x += ox;
-					quad.p4.y += oy;
-				}
-
-				renderer.setTexture(texture);
-				renderer.quad3(quad, imageInfo.getTexRect());
-			}
-		}
+		// else: not ready yet — render nothing
 	}
 
 	// Getters for model state
@@ -996,6 +974,18 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			};
 
 			modelLoadLog(`Animation controller created with ${this._model.animations.length} animations, ${animMeshes.length} skinned meshes`);
+
+		// Apply any animation that was requested before the controller was ready
+		if (this._pendingAnimation !== null)
+		{
+			this._animationController.play(this._pendingAnimation);
+			this._pendingAnimation = null;
+		}
+		else if (this._pendingAnimationIndex !== null)
+		{
+			this._animationController.playByIndex(this._pendingAnimationIndex);
+			this._pendingAnimationIndex = null;
+		}
 		}
 		catch (err)
 		{
@@ -1008,7 +998,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (!this._animationController)
 		{
-			debugWarn("No animation controller - model may not have animations");
+			this._pendingAnimation = name;
 			return;
 		}
 		this._animationController.play(name);
@@ -1018,7 +1008,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (!this._animationController)
 		{
-			debugWarn("No animation controller - model may not have animations");
+			this._pendingAnimationIndex = index;
 			return;
 		}
 		this._animationController.playByIndex(index);
@@ -1135,6 +1125,26 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const names = this._animationController?.getAnimationNames() ??
 			this._model?.animations.map(a => a.name) ?? [];
 		return JSON.stringify(names);
+	}
+
+	_blendToAnimation(name: string, duration: number, startTime: number): void
+	{
+		if (!this._animationController)
+		{
+			debugWarn("No animation controller - model may not have animations");
+			return;
+		}
+		this._animationController.blendTo(name, duration, startTime);
+	}
+
+	_isBlending(): boolean
+	{
+		return this._animationController?.isBlending() ?? false;
+	}
+
+	_getBlendProgress(): number
+	{
+		return this._animationController?.getBlendProgress() ?? 0;
 	}
 
 	// ========================================================================

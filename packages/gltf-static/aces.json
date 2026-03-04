@@ -369,6 +369,11 @@
 				"scriptName": "OnAnimationFinished",
 				"highlight": true,
 				"isTrigger": true
+			},
+			{
+				"id": "is-blending",
+				"scriptName": "IsBlending",
+				"highlight": false
 			}
 		],
 		"actions": [
@@ -505,6 +510,25 @@
 						"type": "number"
 					}
 				]
+			},
+			{
+				"id": "blend-to-animation",
+				"scriptName": "BlendToAnimation",
+				"highlight": true,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					},
+					{
+						"id": "duration",
+						"type": "number"
+					},
+					{
+						"id": "start-time",
+						"type": "number"
+					}
+				]
 			}
 		],
 		"expressions": [
@@ -572,6 +596,11 @@
 			{
 				"id": "effective-frame-skip",
 				"expressionName": "EffectiveFrameSkip",
+				"returnType": "number"
+			},
+			{
+				"id": "blend-progress",
+				"expressionName": "BlendProgress",
 				"returnType": "number"
 			}
 		]
