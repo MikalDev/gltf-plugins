@@ -1609,15 +1609,16 @@ export class GltfModel {
 	}
 
 	/**
-	 * Update static mesh positions based on their parent node's world matrix.
-	 * Call this after updateJointNodes() to update static meshes under animated joints.
-	 * Skinned meshes are skipped (handled separately via bone matrices).
+	 * Update static mesh positions and lighting for non-skinned meshes under animated joints.
+	 * Call this after updateJointNodes(). Skinned meshes are skipped (handled via bone matrices).
+	 * Meshes with animated ancestors also get main-thread lighting (worker pool excludes them).
 	 */
-	updateStaticMeshTransforms(instanceMatrix?: Float32Array): void {
+	updateStaticMeshTransforms(instanceMatrix?: Float32Array, cameraPosition?: Float32Array | null): void {
 		for (const mesh of this._meshes) {
 			if (!mesh.isSkinned && mesh.parentNode) {
 				const hasAnimAncestor = mesh.parentNode.hasAnimatedAncestor();
 				mesh.updateNodeTransform(hasAnimAncestor ? instanceMatrix : undefined);
+				if (hasAnimAncestor) mesh.applyLighting(null, false, cameraPosition);
 			}
 		}
 	}

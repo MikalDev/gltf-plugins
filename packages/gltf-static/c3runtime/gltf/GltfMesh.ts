@@ -33,6 +33,8 @@ export class GltfMesh {
 	// Matrix dirty tracking to avoid redundant GPU uploads
 	private _lastMatrix: Float32Array | null = null;
 	private _tempMatrix: Float32Array | null = null;
+	// Set when updateNodeTransform changes positions/normals so applyLighting knows to re-light
+	private _needsLightingUpdate: boolean = false;
 
 	// Lighting dirty tracking
 	private _lastLightingVersion: number = -1;
@@ -520,6 +522,7 @@ export class GltfMesh {
 			this._lastMatrix = new Float32Array(16);
 		}
 		this._lastMatrix.set(finalMatrix);
+		this._needsLightingUpdate = true;
 
 		const positions = this._meshData.positions;
 		const original = this._originalPositions;
@@ -672,9 +675,10 @@ export class GltfMesh {
 		const cameraChanged = this._hasCameraPositionChanged(cameraPosition);
 		const hasAnimatedAncestor = this._parentNode?.hasAnimatedAncestor() ?? false;
 
-		if (!force && this._lastLightingVersion === currentVersion && !rotationChanged && !cameraChanged) {
+		if (!force && !this._needsLightingUpdate && this._lastLightingVersion === currentVersion && !rotationChanged && !cameraChanged) {
 			return; // Nothing changed, skip
 		}
+		this._needsLightingUpdate = false;
 		this._lastLightingVersion = currentVersion;
 		this._updateLastRotation(modelMatrix);
 		this._updateLastCameraPosition(cameraPosition);
