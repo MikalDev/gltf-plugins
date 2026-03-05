@@ -32,6 +32,7 @@ export class GltfMesh {
 
 	// Matrix dirty tracking to avoid redundant GPU uploads
 	private _lastMatrix: Float32Array | null = null;
+	private _tempMatrix: Float32Array | null = null;
 
 	// Lighting dirty tracking
 	private _lastLightingVersion: number = -1;
@@ -488,33 +489,47 @@ export class GltfMesh {
 	}
 
 	/**
-	 * Update positions based on parent node's world matrix only.
+	 * Update positions based on parent node's world matrix combined with instance transform.
 	 * Used for static meshes under animated joints.
-	 * GPU will apply ModelView (instance TRS) during draw.
+	 * @param instanceMatrix C3 instance world matrix; if provided, multiplied with node world matrix.
 	 */
-	updateNodeTransform(): void {
+	updateNodeTransform(instanceMatrix?: Float32Array): void {
 		if (!this._parentNode || !this._meshData || !this._originalPositions || this.isSkinned) return;
 
 		const nodeWorld = this._parentNode.getWorldMatrix();
 
+		// Combine: instanceMatrix * nodeWorldMatrix when instance matrix is provided
+		let finalMatrix: Float32Array;
+		if (instanceMatrix) {
+			if (!this._tempMatrix) this._tempMatrix = new Float32Array(16);
+			mat4.multiply(
+				this._tempMatrix as unknown as mat4,
+				instanceMatrix as unknown as mat4,
+				nodeWorld as unknown as mat4
+			);
+			finalMatrix = this._tempMatrix;
+		} else {
+			finalMatrix = nodeWorld;
+		}
+
 		// Skip if matrix hasn't changed
-		if (!this._isMatrixDirty(nodeWorld)) return;
+		if (!this._isMatrixDirty(finalMatrix)) return;
 
 		// Store copy of matrix for dirty checking
 		if (!this._lastMatrix) {
 			this._lastMatrix = new Float32Array(16);
 		}
-		this._lastMatrix.set(nodeWorld);
+		this._lastMatrix.set(finalMatrix);
 
 		const positions = this._meshData.positions;
 		const original = this._originalPositions;
 		const n = this._vertexCount;
 
 		// Pre-extract matrix elements
-		const m0 = nodeWorld[0], m1 = nodeWorld[1], m2 = nodeWorld[2];
-		const m4 = nodeWorld[4], m5 = nodeWorld[5], m6 = nodeWorld[6];
-		const m8 = nodeWorld[8], m9 = nodeWorld[9], m10 = nodeWorld[10];
-		const m12 = nodeWorld[12], m13 = nodeWorld[13], m14 = nodeWorld[14];
+		const m0 = finalMatrix[0], m1 = finalMatrix[1], m2 = finalMatrix[2];
+		const m4 = finalMatrix[4], m5 = finalMatrix[5], m6 = finalMatrix[6];
+		const m8 = finalMatrix[8], m9 = finalMatrix[9], m10 = finalMatrix[10];
+		const m12 = finalMatrix[12], m13 = finalMatrix[13], m14 = finalMatrix[14];
 
 		for (let i = 0; i < n; i++) {
 			const idx = i * 3;

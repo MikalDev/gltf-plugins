@@ -340,7 +340,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if (this._animationController && this._model)
 		{
 			this._model.updateJointNodes(this._animationController);
-			this._model.updateStaticMeshTransforms();
+			this._model.updateStaticMeshTransforms(this._instanceMatrix);
 			this._updateSkinnedMeshes();
 		}
 

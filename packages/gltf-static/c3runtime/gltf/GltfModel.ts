@@ -1613,10 +1613,11 @@ export class GltfModel {
 	 * Call this after updateJointNodes() to update static meshes under animated joints.
 	 * Skinned meshes are skipped (handled separately via bone matrices).
 	 */
-	updateStaticMeshTransforms(): void {
+	updateStaticMeshTransforms(instanceMatrix?: Float32Array): void {
 		for (const mesh of this._meshes) {
 			if (!mesh.isSkinned && mesh.parentNode) {
-				mesh.updateNodeTransform();
+				const hasAnimAncestor = mesh.parentNode.hasAnimatedAncestor();
+				mesh.updateNodeTransform(hasAnimAncestor ? instanceMatrix : undefined);
 			}
 		}
 	}
