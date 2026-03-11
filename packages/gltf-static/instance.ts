@@ -11,6 +11,7 @@ function getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
 
 // Property indices (matching plugin.ts order, excluding link properties)
 const PROP_MODEL_URL = "model-url";
+const PROP_MODEL_FILE = "model-file";
 const PROP_ROTATION_X = "rotation-x";
 const PROP_ROTATION_Y = "rotation-y";
 const PROP_ROTATION_Z = "rotation-z";
@@ -847,6 +848,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			const builtinType = this._inst.GetPropertyValue(PROP_BUILTIN_TYPE) as string;
 			return `builtin:${builtinType}`;
 		}
+		const modelFile = this._inst.GetPropertyValue(PROP_MODEL_FILE) as string;
+		if (modelFile) return modelFile;
 		return this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
 	}
 
@@ -1411,15 +1414,15 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	OnPropertyChanged(id: string, value: EditorPropertyValueType): void
 	{
 		// Reload model if URL changed (only if not using built-in model)
-		if (id === PROP_MODEL_URL)
+		if (id === PROP_MODEL_URL || id === PROP_MODEL_FILE)
 		{
 			const useBuiltin = this._inst.GetPropertyValue(PROP_USE_BUILTIN) as boolean;
 			if (!useBuiltin)
 			{
-				const url = value as string;
-				if (url !== this._lastModelUrl)
+				const newUrl = this._getModelUrlToLoad();
+				if (newUrl !== this._lastModelUrl)
 				{
-					this._loadModel(url);
+					this._loadModel(newUrl);
 				}
 			}
 		}

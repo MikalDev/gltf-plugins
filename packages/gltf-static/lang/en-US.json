@@ -20,8 +20,12 @@
 						"link-text": "Make 1:1"
 					},
 					"model-url": {
-						"name": "Model URL",
-						"desc": "URL to the glTF model file (.gltf or .glb)."
+						"name": "Model URL (legacy)",
+						"desc": "Legacy text URL. Use 'Model File' instead to select a project file."
+					},
+					"model-file": {
+						"name": "Model File",
+						"desc": "Select a glTF/GLB model file (.gltf or .glb) from the project."
 					},
 					"rotation-x": {
 						"name": "Rotation X",

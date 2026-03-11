@@ -54,12 +54,13 @@ function modelLoadWarn(...args: unknown[]): void {
 // Property indices (link properties are excluded from _getInitProperties)
 // Only data properties are included: model-url, rotation-x, rotation-y, rotation-z, scale, use-built-in-model, built-in-model-type
 const PROP_MODEL_URL = 0;
-const PROP_ROTATION_X = 1;
-const PROP_ROTATION_Y = 2;
-const PROP_ROTATION_Z = 3;
-const PROP_SCALE = 4;
-const PROP_USE_BUILTIN = 5;
-const PROP_BUILTIN_TYPE = 6;
+const PROP_MODEL_FILE = 1;
+const PROP_ROTATION_X = 2;
+const PROP_ROTATION_Y = 3;
+const PROP_ROTATION_Z = 4;
+const PROP_SCALE = 5;
+const PROP_USE_BUILTIN = 6;
+const PROP_BUILTIN_TYPE = 7;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempVec = vec3.create();
@@ -141,7 +142,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const props = this._getInitProperties();
 		if (props)
 		{
-			this._modelUrl = props[PROP_MODEL_URL] as string;
+			const modelFile = props[PROP_MODEL_FILE] as string;
+			const modelUrlLegacy = props[PROP_MODEL_URL] as string;
+			this._modelUrl = modelFile || modelUrlLegacy;
 			this._rotationX = props[PROP_ROTATION_X] as number;
 			this._rotationY = props[PROP_ROTATION_Y] as number;
 			this._rotationZ = props[PROP_ROTATION_Z] as number;

@@ -46,6 +46,9 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 				callbackType: "for-each-instance"
 			}),
 			new SDK.PluginProperty("text", "model-url", ""),
+			new SDK.PluginProperty("projectfile", "model-file", {
+				filter: "gltf,glb"
+			}),
 			new SDK.PluginProperty("float", "rotation-x", 0),
 			new SDK.PluginProperty("float", "rotation-y", 0),
 			new SDK.PluginProperty("float", "rotation-z", 0),
