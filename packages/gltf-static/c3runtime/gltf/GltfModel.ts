@@ -144,6 +144,20 @@ export class GltfModel {
 		return this._meshes;
 	}
 
+	/**
+	 * Apply an external texture to all untextured meshes (e.g. built-in models).
+	 * Remaps UVs from [0,1] model space to the atlas sub-rect.
+	 * Safe for regular glTF models — only touches meshes with no existing texture.
+	 */
+	applyExternalTexture(texture: ITexture, texRect: DOMRect): void {
+		for (const mesh of this._meshes) {
+			if (!mesh.texture) {
+				mesh.remapTexCoords(texRect);
+				mesh.texture = texture;
+			}
+		}
+	}
+
 	/** Get skinning data for a specific mesh by index */
 	getMeshSkinningData(meshIndex: number): MeshSkinningData | undefined {
 		return this._meshSkinningData.get(meshIndex);

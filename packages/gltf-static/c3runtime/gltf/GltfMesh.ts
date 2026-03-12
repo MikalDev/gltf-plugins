@@ -827,6 +827,25 @@ export class GltfMesh {
 		return this._texture;
 	}
 
+	set texture(tex: ITexture | null) {
+		this._texture = tex;
+	}
+
+	/**
+	 * Remap UV coordinates from [0,1] model space to a sub-rect within an atlas texture.
+	 * This is a one-shot operation — calling it twice will produce incorrect results.
+	 */
+	remapTexCoords(texRect: DOMRect): void {
+		if (!this._meshData) return;
+		const uvs = this._meshData.texCoords;
+		for (let i = 0; i < this._vertexCount; i++) {
+			const idx = i * 2;
+			uvs[idx]     = texRect.x + uvs[idx]     * texRect.width;
+			uvs[idx + 1] = texRect.y + uvs[idx + 1] * texRect.height;
+		}
+		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
+	}
+
 	/** Get source vertex colors (from glTF or material baseColorFactor) */
 	get sourceColors(): Float32Array | null {
 		return this._sourceColors;

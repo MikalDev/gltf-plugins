@@ -124,6 +124,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Built lazily on first encounter; tag/resultKey never change so no per-tick string allocations.
 	_lightOcclusionCache: Map<number, { factor: number; tag: string; resultKey: string }> = new Map();
 
+	// Addon image texture applied to built-in models (one-shot flag to prevent double UV remap)
+	_addonTextureApplied: boolean = false;
+
 	// Cached Rapier3DPhysics behavior reference: undefined = not yet checked, null = absent.
 	_cachedPhysBeh: unknown = undefined;
 
@@ -567,6 +570,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (this._model?.isLoaded && this._tickCount >= 10)
 		{
+			// Lazy fallback: apply addon texture if not yet applied (handles atlas load timing)
+			if (this._useBuiltinModel && !this._addonTextureApplied) {
+				this._applyAddonTexture();
+			}
+
 			// Vertices are already in world space (transformed by worker)
 			// C3's camera matrix handles view/projection automatically
 			this._model.draw(renderer, this.runtime.tickCount);
@@ -1281,6 +1289,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		this._modelUrl = url;
 		this._isLoading = true;
+		this._addonTextureApplied = false;
 
 		// Release existing model
 		if (this._model)
@@ -1317,6 +1326,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Create animation controller if model has skinning/animation data
 			this._createAnimationController();
 
+			// Apply addon image texture to built-in models
+			if (this._useBuiltinModel) {
+				this._applyAddonTexture();
+			}
+
 			// Update C3 instance bounds from model bounding box for proper 3D culling
 			this._updateInstanceBounds();
 
@@ -1336,6 +1350,21 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		{
 			this._isLoading = false;
 		}
+	}
+
+	/**
+	 * Apply the addon's image texture to built-in models.
+	 * C3 packs images into atlas sprite sheets, so UVs are remapped to the atlas sub-rect.
+	 */
+	_applyAddonTexture(): void {
+		if (!this._model) return;
+		const imageInfo = (this.objectType as any).getImageInfo();
+		if (!imageInfo) return;
+		const texture = imageInfo.getTexture(this.runtime.renderer);
+		if (!texture) return;
+		const texRect = imageInfo.getTexRect();
+		this._model.applyExternalTexture(texture, texRect);
+		this._addonTextureApplied = true;
 	}
 
 	// ========================================================================
