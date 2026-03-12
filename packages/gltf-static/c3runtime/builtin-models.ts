@@ -1,5 +1,5 @@
 /**
- * Built-in primitive models (cube and sphere) as glTF JSON.
+ * Built-in primitive models as glTF JSON.
  * Shared between editor and runtime via globalThis.GltfBundle.BuiltinModels
  */
 
@@ -12,7 +12,7 @@ interface MeshData {
 }
 
 type FaceColorKey = "posX" | "negX" | "posY" | "negY" | "posZ" | "negZ";
-type BuiltinModelType = "cube" | "sphere" | "capsule";
+type BuiltinModelType = "cube" | "sphere" | "capsule" | "cylinder" | "cone" | "ramp";
 
 const FACE_COLORS: Record<FaceColorKey, number[]> = {
 	posX: [1.0, 0.98, 0.95, 1.0],
@@ -286,6 +286,240 @@ function generateCapsuleData(): MeshData {
 	return { positions, normals, texCoords, colors, indices };
 }
 
+/** Appends a flat circular cap (fan triangles) to the given mesh arrays. */
+function addCapDisc(
+	positions: number[], normals: number[], texCoords: number[],
+	colors: number[], indices: number[],
+	radius: number, yPos: number, radialSegments: number, faceUp: boolean
+): void {
+	const ny = faceUp ? 1 : -1;
+	const colorKey: FaceColorKey = faceUp ? "posY" : "negY";
+	const color = FACE_COLORS[colorKey];
+
+	const centerIdx = positions.length / 3;
+	positions.push(0, yPos, 0);
+	normals.push(0, ny, 0);
+	texCoords.push(0.5, 0.5);
+	colors.push(...color);
+
+	for (let x = 0; x <= radialSegments; x++) {
+		const theta = (x / radialSegments) * Math.PI * 2;
+		const cx = Math.cos(theta);
+		const cz = Math.sin(theta);
+
+		positions.push(cx * radius, yPos, cz * radius);
+		normals.push(0, ny, 0);
+		texCoords.push(cx * 0.5 + 0.5, cz * 0.5 + 0.5);
+		colors.push(...color);
+	}
+
+	for (let x = 0; x < radialSegments; x++) {
+		const i = centerIdx + 1 + x;
+		if (faceUp) {
+			indices.push(centerIdx, i, i + 1);
+		} else {
+			indices.push(centerIdx, i + 1, i);
+		}
+	}
+}
+
+function generateCylinderData(): MeshData {
+	const radius = 5;
+	const height = 10; // Total height = 10 (diameter)
+	const radialSegments = 12; // Low poly
+	const heightSegments = 1;
+
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	const halfHeight = height / 2;
+
+	// Side vertices
+	for (let y = 0; y <= heightSegments; y++) {
+		const v = y / heightSegments;
+		const yPos = halfHeight - v * height;
+
+		for (let x = 0; x <= radialSegments; x++) {
+			const u = x / radialSegments;
+			const theta = u * Math.PI * 2;
+
+			const nx = Math.cos(theta);
+			const nz = Math.sin(theta);
+
+			positions.push(nx * radius, yPos, nz * radius);
+			normals.push(nx, 0, nz);
+			texCoords.push(u, v);
+
+			const absX = Math.abs(nx);
+			const absZ = Math.abs(nz);
+			let color: number[];
+			if (absX >= absZ) {
+				color = nx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+			} else {
+				color = nz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+			}
+			colors.push(...color);
+		}
+	}
+
+	// Side indices
+	const rowSize = radialSegments + 1;
+	for (let y = 0; y < heightSegments; y++) {
+		for (let x = 0; x < radialSegments; x++) {
+			const a = y * rowSize + x;
+			const b = a + rowSize;
+			const c = a + 1;
+			const d = b + 1;
+			indices.push(a, b, c, c, b, d);
+		}
+	}
+
+	addCapDisc(positions, normals, texCoords, colors, indices, radius, halfHeight, radialSegments, true);
+	addCapDisc(positions, normals, texCoords, colors, indices, radius, -halfHeight, radialSegments, false);
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
+function generateConeData(): MeshData {
+	const radius = 5;
+	const height = 10;
+	const radialSegments = 12; // Low poly
+
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	const halfHeight = height / 2;
+	const hyp = Math.sqrt(radius * radius + height * height);
+	const slopeY = radius / hyp;  // Y component of side normal
+	const slopeXZ = height / hyp; // XZ scale for side normal
+
+	// Side vertices: bottom ring + tip per segment
+	for (let x = 0; x <= radialSegments; x++) {
+		const u = x / radialSegments;
+		const theta = u * Math.PI * 2;
+
+		const cx = Math.cos(theta);
+		const cz = Math.sin(theta);
+
+		// Bottom ring vertex
+		positions.push(cx * radius, -halfHeight, cz * radius);
+		normals.push(cx * slopeXZ, slopeY, cz * slopeXZ);
+		texCoords.push(u, 1);
+
+		const absX = Math.abs(cx);
+		const absZ = Math.abs(cz);
+		let color: number[];
+		if (absX >= absZ) {
+			color = cx > 0 ? FACE_COLORS.posX : FACE_COLORS.negX;
+		} else {
+			color = cz > 0 ? FACE_COLORS.posZ : FACE_COLORS.negZ;
+		}
+		colors.push(...color);
+
+		// Tip vertex (same normal as bottom ring vertex)
+		positions.push(0, halfHeight, 0);
+		normals.push(cx * slopeXZ, slopeY, cz * slopeXZ);
+		texCoords.push(u, 0);
+		colors.push(...FACE_COLORS.posY);
+	}
+
+	// Side indices
+	for (let x = 0; x < radialSegments; x++) {
+		const base = x * 2;       // bottom vertex
+		const tip = base + 1;     // tip vertex
+		const nextBase = base + 2; // next bottom vertex
+		indices.push(base, nextBase, tip);
+	}
+
+	addCapDisc(positions, normals, texCoords, colors, indices, radius, -halfHeight, radialSegments, false);
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
+function generateRampData(): MeshData {
+	const half = 5;
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	// A ramp (triangular prism / wedge):
+	// - Bottom face (rectangle)
+	// - Back face (rectangle, vertical)
+	// - Slope face (rectangle, angled)
+	// - Two triangular end caps (left and right)
+	//
+	// Vertices (looking from +X side):
+	//   Back-top-left (BTL): (-half, half, -half)
+	//   Back-bottom-left (BBL): (-half, -half, -half)
+	//   Front-bottom-left (FBL): (-half, -half, half)
+	//   Back-top-right (BTR): (half, half, -half)
+	//   Back-bottom-right (BBR): (half, -half, -half)
+	//   Front-bottom-right (FBR): (half, -half, half)
+
+	const BTL = [-half, half, -half];
+	const BBL = [-half, -half, -half];
+	const FBL = [-half, -half, half];
+	const BTR = [half, half, -half];
+	const BBR = [half, -half, -half];
+	const FBR = [half, -half, half];
+
+	// Helper to add a quad (two triangles) with given normal and color
+	function addQuad(v0: number[], v1: number[], v2: number[], v3: number[], normal: number[], colorKey: FaceColorKey) {
+		const base = positions.length / 3;
+		const color = FACE_COLORS[colorKey];
+
+		// v0--v1
+		// |  / |
+		// v2--v3
+		for (const v of [v0, v1, v2, v3]) {
+			positions.push(v[0], v[1], v[2]);
+			normals.push(normal[0], normal[1], normal[2]);
+			colors.push(...color);
+		}
+		texCoords.push(0, 0, 1, 0, 0, 1, 1, 1);
+		indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+	}
+
+	// Helper to add a triangle
+	function addTri(v0: number[], v1: number[], v2: number[], normal: number[], colorKey: FaceColorKey) {
+		const base = positions.length / 3;
+		const color = FACE_COLORS[colorKey];
+		for (const v of [v0, v1, v2]) {
+			positions.push(v[0], v[1], v[2]);
+			normals.push(normal[0], normal[1], normal[2]);
+			colors.push(...color);
+		}
+		texCoords.push(0.5, 0, 0, 1, 1, 1);
+		indices.push(base, base + 1, base + 2);
+	}
+
+	// Bottom face (y = -half, normal down)
+	addQuad(BBL, BBR, FBL, FBR, [0, -1, 0], "negY");
+
+	// Back face (z = -half, normal -z)
+	addQuad(BTL, BTR, BBL, BBR, [0, 0, -1], "negZ");
+
+	// Slope face: from front-bottom to back-top (45 degree slope, normal = [0, 1/sqrt2, 1/sqrt2])
+	const sn = Math.SQRT1_2;
+	addQuad(BTL, BTR, FBL, FBR, [0, sn, sn], "posZ");
+
+	// Left end cap (x = -half, normal -x): triangle BTL, BBL, FBL
+	addTri(BTL, FBL, BBL, [-1, 0, 0], "negX");
+
+	// Right end cap (x = +half, normal +x): triangle BTR, BBR, FBR
+	addTri(BTR, BBR, FBR, [1, 0, 0], "posX");
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
 function uint8ArrayToBase64(bytes: Uint8Array): string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let result = "";
@@ -357,46 +591,46 @@ function buildGltfJson(mesh: MeshData, name: string): string {
 	});
 }
 
-// Cached JSON strings
-let _cubeJson: string | null = null;
-let _sphereJson: string | null = null;
-let _capsuleJson: string | null = null;
+// Generators and cache
+const generators: Record<BuiltinModelType, () => MeshData> = {
+	cube: generateCubeData,
+	sphere: generateSphereData,
+	capsule: generateCapsuleData,
+	cylinder: generateCylinderData,
+	cone: generateConeData,
+	ramp: generateRampData,
+};
 
-function getCubeJson(): string {
-	if (!_cubeJson) _cubeJson = buildGltfJson(generateCubeData(), "BuiltinCube");
-	return _cubeJson;
-}
+const jsonCache = new Map<BuiltinModelType, string>();
 
-function getSphereJson(): string {
-	if (!_sphereJson) _sphereJson = buildGltfJson(generateSphereData(), "BuiltinSphere");
-	return _sphereJson;
-}
-
-function getCapsuleJson(): string {
-	if (!_capsuleJson) _capsuleJson = buildGltfJson(generateCapsuleData(), "BuiltinCapsule");
-	return _capsuleJson;
+function getBuiltinJson(type: BuiltinModelType): string {
+	let json = jsonCache.get(type);
+	if (!json) {
+		const name = "Builtin" + type[0].toUpperCase() + type.slice(1);
+		json = buildGltfJson(generators[type](), name);
+		jsonCache.set(type, json);
+	}
+	return json;
 }
 
 // Public API
 const BuiltinModels = {
 	isBuiltinModelUrl(url: string): boolean {
-		return url === "builtin:cube" || url === "builtin:sphere" || url === "builtin:capsule";
+		return url.startsWith("builtin:") && BuiltinModels.getBuiltinModelType(url) !== null;
 	},
 
 	getBuiltinModelType(url: string): BuiltinModelType | null {
-		if (url === "builtin:cube") return "cube";
-		if (url === "builtin:sphere") return "sphere";
-		if (url === "builtin:capsule") return "capsule";
-		return null;
+		const type = url.slice(8) as BuiltinModelType; // strip "builtin:"
+		return type in generators ? type : null;
 	},
 
 	getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
-		const json = type === "cube" ? getCubeJson() : type === "sphere" ? getSphereJson() : getCapsuleJson();
+		const json = getBuiltinJson(type);
 		return new TextEncoder().encode(json).buffer;
 	},
 
 	getBuiltinModelDataUrl(type: BuiltinModelType): string {
-		const json = type === "cube" ? getCubeJson() : type === "sphere" ? getSphereJson() : getCapsuleJson();
+		const json = getBuiltinJson(type);
 		const bytes = new TextEncoder().encode(json);
 		const base64 = uint8ArrayToBase64(bytes);
 		return `data:model/gltf+json;base64,${base64}`;

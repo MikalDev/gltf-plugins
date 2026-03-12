@@ -53,7 +53,10 @@
 						"items": {
 							"cube": "Cube",
 							"sphere": "Sphere",
-							"capsule": "Capsule"
+							"capsule": "Capsule",
+							"cylinder": "Cylinder",
+							"cone": "Cone",
+							"ramp": "Ramp"
 						}
 					}
 				},
