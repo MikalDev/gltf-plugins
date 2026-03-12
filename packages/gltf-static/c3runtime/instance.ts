@@ -142,9 +142,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const props = this._getInitProperties();
 		if (props)
 		{
-			const modelFile = props[PROP_MODEL_FILE] as string;
+			const modelFile = props[PROP_MODEL_FILE];
 			const modelUrlLegacy = props[PROP_MODEL_URL] as string;
-			this._modelUrl = modelFile || modelUrlLegacy;
+			this._modelUrl = (typeof modelFile === "string" && modelFile.length > 0) ? modelFile : modelUrlLegacy;
 			this._rotationX = props[PROP_ROTATION_X] as number;
 			this._rotationY = props[PROP_ROTATION_Y] as number;
 			this._rotationZ = props[PROP_ROTATION_Z] as number;

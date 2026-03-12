@@ -848,8 +848,12 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			const builtinType = this._inst.GetPropertyValue(PROP_BUILTIN_TYPE) as string;
 			return `builtin:${builtinType}`;
 		}
-		const modelFile = this._inst.GetPropertyValue(PROP_MODEL_FILE) as string;
-		if (modelFile) return modelFile;
+		const sid = this._inst.GetPropertyValue(PROP_MODEL_FILE);
+		if (typeof sid === "number" && sid > 0)
+		{
+			const projectFile = this.GetProject().GetProjectFileBySID(sid);
+			if (projectFile) return projectFile.GetName();
+		}
 		return this._inst.GetPropertyValue(PROP_MODEL_URL) as string;
 	}
 
@@ -1031,7 +1035,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	{
 		const x = this._inst.GetX();
 		const y = this._inst.GetY();
-		const z = this._inst.GetZElevation();
+		const z = (this._inst as any).GetZ();
 		const w = this._inst.GetWidth();
 		const h = this._inst.GetHeight();
 		const angle = this._inst.GetAngle();
@@ -1059,7 +1063,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		// Get transform parameters
 		const x = this._inst.GetX();
 		const y = this._inst.GetY();
-		const z = this._inst.GetZElevation();
+		const z = (this._inst as any).GetZ();
 		const angle = this._inst.GetAngle();
 		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
 		// Y rotation offset by +180 degrees to match runtime orientation
@@ -1390,15 +1394,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 
 	OnMakeOriginalSize(): void
 	{
-		const objectType = this.GetObjectType();
-		const image = objectType.GetImage();
-		const width = image.GetWidth();
-		const height = image.GetHeight();
-
-		if (width > 0 && height > 0)
-		{
-			this._inst.SetSize(width, height);
-		}
+		this._inst.SetPropertyValue(PROP_SCALE, 1);
 	}
 
 	OnDoubleTap(): void
@@ -1416,6 +1412,16 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		// Reload model if URL changed (only if not using built-in model)
 		if (id === PROP_MODEL_URL || id === PROP_MODEL_FILE)
 		{
+			// Clear legacy Model URL when Model File is selected
+			if (id === PROP_MODEL_FILE)
+			{
+				const sid = this._inst.GetPropertyValue(PROP_MODEL_FILE);
+				if (typeof sid === "number" && sid > 0)
+				{
+					this._inst.SetPropertyValue(PROP_MODEL_URL, "");
+				}
+			}
+
 			const useBuiltin = this._inst.GetPropertyValue(PROP_USE_BUILTIN) as boolean;
 			if (!useBuiltin)
 			{
