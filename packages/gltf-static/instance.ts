@@ -3,7 +3,7 @@ import type { EditorSpotlight, EditorEnvironment } from "@gltf-plugins/shared-ty
 const PLUGIN_CLASS = SDK.Plugins.GltfStatic;
 
 // Builtin models are loaded via globalThis.GltfBundle.BuiltinModels (from c3runtime/builtin-models.js)
-type BuiltinModelType = "cube" | "sphere" | "capsule";
+type BuiltinModelType = "cube" | "sphere" | "capsule" | "cylinder" | "cone" | "ramp" | "plane";
 
 function getBuiltinModelArrayBuffer(type: BuiltinModelType): ArrayBuffer {
 	return (globalThis as any).GltfBundle.BuiltinModels.getBuiltinModelArrayBuffer(type);

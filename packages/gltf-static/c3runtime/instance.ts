@@ -185,7 +185,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Auto-load model: built-in model takes priority over URL
 			if (this._useBuiltinModel)
 			{
-				const builtinUrls = ["builtin:cube", "builtin:sphere", "builtin:capsule", "builtin:cylinder", "builtin:cone", "builtin:ramp"];
+				const builtinUrls = ["builtin:cube", "builtin:sphere", "builtin:capsule", "builtin:cylinder", "builtin:cone", "builtin:ramp", "builtin:plane"];
 				const builtinUrl = builtinUrls[this._builtinModelType] ?? "builtin:cube";
 				modelLoadLog("Auto-loading built-in model:", builtinUrl);
 				this._loadModel(builtinUrl);

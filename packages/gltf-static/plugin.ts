@@ -55,7 +55,7 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 			new SDK.PluginProperty("float", "scale", 1),
 			new SDK.PluginProperty("check", "use-built-in-model", false),
 			new SDK.PluginProperty("combo", "built-in-model-type", {
-				items: ["cube", "sphere", "capsule", "cylinder", "cone", "ramp"],
+				items: ["cube", "sphere", "capsule", "cylinder", "cone", "ramp", "plane"],
 				initialValue: "cube"
 			})
 		]);

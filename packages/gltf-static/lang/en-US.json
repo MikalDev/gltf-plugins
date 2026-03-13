@@ -56,7 +56,8 @@
 							"capsule": "Capsule",
 							"cylinder": "Cylinder",
 							"cone": "Cone",
-							"ramp": "Ramp"
+							"ramp": "Ramp",
+							"plane": "Plane"
 						}
 					}
 				},

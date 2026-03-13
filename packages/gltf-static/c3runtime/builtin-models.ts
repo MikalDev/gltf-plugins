@@ -12,7 +12,7 @@ interface MeshData {
 }
 
 type FaceColorKey = "posX" | "negX" | "posY" | "negY" | "posZ" | "negZ";
-type BuiltinModelType = "cube" | "sphere" | "capsule" | "cylinder" | "cone" | "ramp";
+type BuiltinModelType = "cube" | "sphere" | "capsule" | "cylinder" | "cone" | "ramp" | "plane";
 
 const FACE_COLORS: Record<FaceColorKey, number[]> = {
 	posX: [1.0, 0.98, 0.95, 1.0],
@@ -520,6 +520,75 @@ function generateRampData(): MeshData {
 	return { positions, normals, texCoords, colors, indices };
 }
 
+function generatePlaneData(): MeshData {
+	const half = 5;
+	const thickness = 0.1;
+	const segments = 10;
+	const positions: number[] = [];
+	const normals: number[] = [];
+	const texCoords: number[] = [];
+	const colors: number[] = [];
+	const indices: number[] = [];
+
+	const halfT = thickness / 2;
+
+	// Top face (y = halfT, normal up) — 10x10 grid
+	const topColor = FACE_COLORS.posY;
+	for (let j = 0; j <= segments; j++) {
+		const v = j / segments;
+		const z = -half + v * half * 2;
+		for (let i = 0; i <= segments; i++) {
+			const u = i / segments;
+			const x = -half + u * half * 2;
+			positions.push(x, halfT, z);
+			normals.push(0, 1, 0);
+			texCoords.push(u, v);
+			colors.push(...topColor);
+		}
+	}
+
+	const rowSize = segments + 1;
+	for (let j = 0; j < segments; j++) {
+		for (let i = 0; i < segments; i++) {
+			const a = j * rowSize + i;
+			const b = a + 1;
+			const c = a + rowSize;
+			const d = c + 1;
+			indices.push(a, c, b, b, c, d);
+		}
+	}
+
+	// Bottom face (y = -halfT, normal down) — 10x10 grid
+	const botStart = positions.length / 3;
+	const botColor = FACE_COLORS.negY;
+	for (let j = 0; j <= segments; j++) {
+		const v = j / segments;
+		const z = -half + v * half * 2;
+		for (let i = 0; i <= segments; i++) {
+			const u = i / segments;
+			const x = -half + u * half * 2;
+			positions.push(x, -halfT, z);
+			normals.push(0, -1, 0);
+			texCoords.push(u, v);
+			colors.push(...botColor);
+		}
+	}
+
+	for (let j = 0; j < segments; j++) {
+		for (let i = 0; i < segments; i++) {
+			const a = botStart + j * rowSize + i;
+			const b = a + 1;
+			const c = a + rowSize;
+			const d = c + 1;
+			indices.push(a, b, c, c, b, d);
+		}
+	}
+
+	// Side faces omitted — at 0.1 thickness they are effectively invisible
+
+	return { positions, normals, texCoords, colors, indices };
+}
+
 function uint8ArrayToBase64(bytes: Uint8Array): string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	let result = "";
@@ -599,6 +668,7 @@ const generators: Record<BuiltinModelType, () => MeshData> = {
 	cylinder: generateCylinderData,
 	cone: generateConeData,
 	ramp: generateRampData,
+	plane: generatePlaneData,
 };
 
 const jsonCache = new Map<BuiltinModelType, string>();

@@ -22,7 +22,7 @@ async function build() {
 	const addonJson = JSON.parse(fs.readFileSync(ADDON_JSON, "utf8"));
 	const fileList = addonJson["file-list"];
 	const version = addonJson["version"];
-	const addonId = addonJson["id"];
+	const addonName = addonJson["name"];
 
 	// 4. Create dist directory if it doesn't exist
 	if (!fs.existsSync(DIST_DIR)) {
@@ -30,7 +30,7 @@ async function build() {
 	}
 
 	// 5. Create .c3addon file (ZIP archive)
-	const outputFile = path.join(DIST_DIR, `${addonId}-${version}.c3addon`);
+	const outputFile = path.join(DIST_DIR, `${addonName}-${version}.c3addon`);
 	console.log(`\n4. Creating ${outputFile}...`);
 
 	await createC3Addon(fileList, outputFile);
