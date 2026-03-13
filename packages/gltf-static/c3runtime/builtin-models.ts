@@ -521,70 +521,53 @@ function generateRampData(): MeshData {
 }
 
 function generatePlaneData(): MeshData {
-	const half = 5;
-	const thickness = 0.1;
+	const halfXZ = 5;
 	const segments = 10;
+
+	const faces: CubeFace[] = [
+		{ corners: [[-halfXZ, 0.05, -halfXZ], [halfXZ, 0.05, -halfXZ], [halfXZ, 0.05, halfXZ], [-halfXZ, 0.05, halfXZ]], normal: [0, 1, 0], colorKey: "posY" },
+		{ corners: [[-halfXZ, -0.05, halfXZ], [halfXZ, -0.05, halfXZ], [halfXZ, -0.05, -halfXZ], [-halfXZ, -0.05, -halfXZ]], normal: [0, -1, 0], colorKey: "negY" },
+	];
+
 	const positions: number[] = [];
 	const normals: number[] = [];
 	const texCoords: number[] = [];
 	const colors: number[] = [];
 	const indices: number[] = [];
 
-	const halfT = thickness / 2;
+	let vi = 0;
+	for (const face of faces) {
+		const [c0, c1, c2, c3] = face.corners;
+		const color = FACE_COLORS[face.colorKey];
 
-	// Top face (y = halfT, normal up) — 10x10 grid
-	const topColor = FACE_COLORS.posY;
-	for (let j = 0; j <= segments; j++) {
-		const v = j / segments;
-		const z = -half + v * half * 2;
-		for (let i = 0; i <= segments; i++) {
-			const u = i / segments;
-			const x = -half + u * half * 2;
-			positions.push(x, halfT, z);
-			normals.push(0, 1, 0);
-			texCoords.push(u, v);
-			colors.push(...topColor);
+		for (let j = 0; j <= segments; j++) {
+			const v = j / segments;
+			for (let i = 0; i <= segments; i++) {
+				const u = i / segments;
+				const px = (1 - u) * (1 - v) * c0[0] + u * (1 - v) * c1[0] + u * v * c2[0] + (1 - u) * v * c3[0];
+				const py = (1 - u) * (1 - v) * c0[1] + u * (1 - v) * c1[1] + u * v * c2[1] + (1 - u) * v * c3[1];
+				const pz = (1 - u) * (1 - v) * c0[2] + u * (1 - v) * c1[2] + u * v * c2[2] + (1 - u) * v * c3[2];
+
+				positions.push(px, py, pz);
+				normals.push(...face.normal);
+				const flipV = face.normal[1] < 0;
+				texCoords.push(u, flipV ? 1 - v : v);
+				colors.push(...color);
+			}
 		}
-	}
 
-	const rowSize = segments + 1;
-	for (let j = 0; j < segments; j++) {
-		for (let i = 0; i < segments; i++) {
-			const a = j * rowSize + i;
-			const b = a + 1;
-			const c = a + rowSize;
-			const d = c + 1;
-			indices.push(a, c, b, b, c, d);
+		const vertsPerRow = segments + 1;
+		for (let j = 0; j < segments; j++) {
+			for (let i = 0; i < segments; i++) {
+				const a = vi + j * vertsPerRow + i;
+				const b = a + 1;
+				const c = a + vertsPerRow;
+				const d = c + 1;
+				indices.push(a, c, b, b, c, d);
+			}
 		}
+		vi += vertsPerRow * vertsPerRow;
 	}
-
-	// Bottom face (y = -halfT, normal down) — 10x10 grid
-	const botStart = positions.length / 3;
-	const botColor = FACE_COLORS.negY;
-	for (let j = 0; j <= segments; j++) {
-		const v = j / segments;
-		const z = -half + v * half * 2;
-		for (let i = 0; i <= segments; i++) {
-			const u = i / segments;
-			const x = -half + u * half * 2;
-			positions.push(x, -halfT, z);
-			normals.push(0, -1, 0);
-			texCoords.push(u, v);
-			colors.push(...botColor);
-		}
-	}
-
-	for (let j = 0; j < segments; j++) {
-		for (let i = 0; i < segments; i++) {
-			const a = botStart + j * rowSize + i;
-			const b = a + 1;
-			const c = a + rowSize;
-			const d = c + 1;
-			indices.push(a, b, c, c, b, d);
-		}
-	}
-
-	// Side faces omitted — at 0.1 thickness they are effectively invisible
 
 	return { positions, normals, texCoords, colors, indices };
 }
