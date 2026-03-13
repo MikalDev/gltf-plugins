@@ -27,6 +27,7 @@ export class GltfMesh {
 	private _originalNormals: Float32Array | null = null;
 	private _transformedNormals: Float32Array | null = null;
 	private _sourceColors: Float32Array | null = null;
+	private _originalTexCoords: Float32Array | null = null;
 	private _vertexCount: number = 0;
 	private _hasNormals: boolean = false;
 
@@ -209,8 +210,11 @@ export class GltfMesh {
 				console.warn(`${LOG_PREFIX} Mesh #${this._id}: texCoords length mismatch`);
 			}
 			this._meshData.texCoords.set(texCoords);
+			// Store original UVs for repeatable tex rect remapping (texture animations)
+			this._originalTexCoords = new Float32Array(texCoords);
 		} else {
 			this._meshData.texCoords.fill(0);
+			this._originalTexCoords = new Float32Array(this._vertexCount * 2);
 		}
 		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
 
@@ -846,6 +850,22 @@ export class GltfMesh {
 		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
 	}
 
+	/**
+	 * Remap UV coordinates from stored originals to a new atlas sub-rect.
+	 * Unlike remapTexCoords(), this can be called repeatedly (non-destructive).
+	 */
+	updateTexRect(texRect: DOMRect): void {
+		if (!this._meshData || !this._originalTexCoords) return;
+		const uvs = this._meshData.texCoords;
+		const orig = this._originalTexCoords;
+		for (let i = 0; i < this._vertexCount; i++) {
+			const idx = i * 2;
+			uvs[idx]     = texRect.x + orig[idx]     * texRect.width;
+			uvs[idx + 1] = texRect.y + orig[idx + 1] * texRect.height;
+		}
+		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
+	}
+
 	/** Get source vertex colors (from glTF or material baseColorFactor) */
 	get sourceColors(): Float32Array | null {
 		return this._sourceColors;
@@ -901,6 +921,7 @@ export class GltfMesh {
 		this._originalPositions = null;
 		this._originalNormals = null;
 		this._transformedNormals = null;
+		this._originalTexCoords = null;
 		this._hasNormals = false;
 		this._lastMatrix = null;
 		this._lastLightingVersion = -1;

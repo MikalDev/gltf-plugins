@@ -69,5 +69,21 @@ C3.Plugins.GltfStatic.Cnds =
 	IsLightingBaked(this: SDKInstanceClass): boolean
 	{
 		return this._isLightingBaked();
+	},
+
+	// Texture animation conditions
+	IsTextureAnimPlaying(this: SDKInstanceClass): boolean
+	{
+		return this._isTextureAnimPlaying();
+	},
+
+	OnTextureAnimFinished(this: SDKInstanceClass): boolean
+	{
+		return true; // Trigger condition
+	},
+
+	OnTextureFrameChanged(this: SDKInstanceClass): boolean
+	{
+		return true; // Trigger condition
 	}
 };

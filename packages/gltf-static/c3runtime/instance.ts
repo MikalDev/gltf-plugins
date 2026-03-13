@@ -127,6 +127,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Addon image texture applied to built-in models (one-shot flag to prevent double UV remap)
 	_addonTextureApplied: boolean = false;
 
+	// Texture (sprite-frame) animation state
+	_texAnimPlaying: boolean = false;
+	_texAnimFrame: number = 0;
+	_texAnimSpeedScale: number = 1;
+	_texAnimAccumulator: number = 0;
+	_texAnimName: string = "Default";
+	_texAnimForward: boolean = true;  // for ping-pong direction
+	_texSourceInst: any = null;       // Sprite instance used as animation source
+
 	// Cached Rapier3DPhysics behavior reference: undefined = not yet checked, null = absent.
 	_cachedPhysBeh: unknown = undefined;
 
@@ -197,6 +206,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		// Clean up animation controller
 		this._animationController = null;
+		this._texSourceInst = null;
 
 		// Clean up glTF model resources
 		if (this._model)
@@ -339,6 +349,12 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		{
 			this._animationController.update(this._accumulatedDt);
 		}
+
+		// Advance texture (sprite-frame) animation using accumulated dt (frame-skip aware)
+		if (this._texAnimPlaying && this._useBuiltinModel) {
+			this._tickTextureAnimation(this._accumulatedDt);
+		}
+
 		this._accumulatedDt = 0;
 
 		// Apply joint/skinning transforms every tick — ensures instance TRS (scale, rotation)
@@ -2307,6 +2323,228 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		return props;
 	}
 
+	// ========================================================================
+	// Texture Animation Methods (sprite-frame animation on built-in models)
+	// ========================================================================
+
+	/**
+	 * Get the current texture animation from the assigned Sprite source.
+	 * Returns null if no Sprite source is set or the animation doesn't exist.
+	 */
+	_getTextureAnimation(): any | null {
+		if (!this._texSourceInst) return null;
+		try {
+			return this._texSourceInst.getAnimation(this._texAnimName);
+		} catch (_) {}
+		return null;
+	}
+
+	/**
+	 * Set the Sprite instance to use as the texture animation source.
+	 * Called from the SetTextureSource action.
+	 */
+	_setTextureSource(objectClass: any): void {
+		const inst = objectClass?.getFirstPickedInstance?.() ?? objectClass?.getFirstInstance?.();
+		if (!inst) {
+			debugWarn("SetTextureSource: no Sprite instance found");
+			return;
+		}
+		this._texSourceInst = inst;
+		// Apply first frame immediately if model is ready
+		if (this._model && this._useBuiltinModel) {
+			this._updateTextureForFrame();
+		}
+	}
+
+	/**
+	 * Get the total number of frames in the current texture animation.
+	 */
+	_getTextureAnimFrameCount(): number {
+		const anim = this._getTextureAnimation();
+		if (!anim) return 0;
+		return anim.frameCount ?? 0;
+	}
+
+	/**
+	 * Update the model's texture to show the current animation frame.
+	 */
+	_updateTextureForFrame(): void {
+		if (!this._model || !this._useBuiltinModel) return;
+		const anim = this._getTextureAnimation();
+		if (!anim) return;
+		const frameCount = anim.frameCount ?? 0;
+		if (frameCount === 0) return;
+		const frameIndex = Math.max(0, Math.min(this._texAnimFrame, frameCount - 1));
+		const frames = anim.getFrames();
+		const frame = frames[frameIndex];
+		if (!frame) return;
+		const texture = frame.getTexture(this.runtime.renderer);
+		if (!texture) return;
+		const texRect = frame.getTexRect();
+		this._model.updateExternalTexture(texture, texRect);
+	}
+
+	/**
+	 * Advance texture animation by dt seconds.
+	 * Reads speed from the animation's editor-configured speed, multiplied by _texAnimSpeedScale.
+	 */
+	_tickTextureAnimation(dt: number): void {
+		if (!this._texAnimPlaying) return;
+		const anim = this._getTextureAnimation();
+		if (!anim) return;
+		const frameCount = anim.frameCount ?? 0;
+		if (frameCount <= 1) return;
+
+		// animation.speed is frames per second from the editor
+		const fps = (anim.speed ?? 5) * this._texAnimSpeedScale;
+		if (fps <= 0) return;
+
+		// Per-frame duration: duration is a relative multiplier (default 1)
+		const allFrames = anim.getFrames();
+		const currentFrame = allFrames[this._texAnimFrame];
+		const frameDuration = (currentFrame?.duration ?? 1) / fps;
+
+		this._texAnimAccumulator += dt;
+
+		if (this._texAnimAccumulator >= frameDuration) {
+			this._texAnimAccumulator -= frameDuration;
+			// Clamp accumulator to avoid spiral-of-death on lag spikes
+			if (this._texAnimAccumulator > frameDuration) {
+				this._texAnimAccumulator = 0;
+			}
+
+			const isLooping = anim.isLooping ?? true;
+			const isPingPong = anim.isPingPong ?? false;
+			const repeatTo = anim.repeatTo ?? 0;
+			const prevFrame = this._texAnimFrame;
+
+			if (isPingPong) {
+				if (this._texAnimForward) {
+					this._texAnimFrame++;
+					if (this._texAnimFrame >= frameCount) {
+						this._texAnimFrame = frameCount - 2;
+						this._texAnimForward = false;
+						if (this._texAnimFrame < 0) {
+							this._texAnimFrame = 0;
+							this._texAnimForward = true;
+						}
+					}
+				} else {
+					this._texAnimFrame--;
+					if (this._texAnimFrame < repeatTo) {
+						if (isLooping) {
+							this._texAnimFrame = repeatTo + 1;
+							this._texAnimForward = true;
+							if (this._texAnimFrame >= frameCount) {
+								this._texAnimFrame = frameCount - 1;
+							}
+						} else {
+							this._texAnimFrame = repeatTo;
+							this._texAnimPlaying = false;
+							this._trigger(C3.Plugins.GltfStatic.Cnds.OnTextureAnimFinished);
+						}
+					}
+				}
+			} else {
+				// Normal forward playback
+				this._texAnimFrame++;
+				if (this._texAnimFrame >= frameCount) {
+					if (isLooping) {
+						this._texAnimFrame = repeatTo;
+					} else {
+						this._texAnimFrame = frameCount - 1;
+						this._texAnimPlaying = false;
+						this._trigger(C3.Plugins.GltfStatic.Cnds.OnTextureAnimFinished);
+					}
+				}
+			}
+
+			if (this._texAnimFrame !== prevFrame) {
+				this._updateTextureForFrame();
+				this._trigger(C3.Plugins.GltfStatic.Cnds.OnTextureFrameChanged);
+			}
+		}
+	}
+
+	/**
+	 * Play the current texture animation.
+	 * @param fromBeginning If true, restart from frame 0. If false, continue from current frame.
+	 */
+	_playTextureAnimation(fromBeginning: boolean): void {
+		if (fromBeginning) {
+			this._texAnimFrame = 0;
+			this._texAnimAccumulator = 0;
+			this._texAnimForward = true;
+		}
+		this._texAnimPlaying = true;
+		this._updateTextureForFrame();
+	}
+
+	/**
+	 * Stop the texture animation.
+	 */
+	_stopTextureAnimation(): void {
+		this._texAnimPlaying = false;
+	}
+
+	/**
+	 * Set the texture animation by name, optionally restarting from beginning.
+	 */
+	_setTextureAnimation(name: string, fromBeginning: boolean): void {
+		this._texAnimName = name;
+		if (fromBeginning) {
+			this._texAnimFrame = 0;
+			this._texAnimAccumulator = 0;
+			this._texAnimForward = true;
+		}
+		this._updateTextureForFrame();
+	}
+
+	/**
+	 * Set the current texture animation frame directly.
+	 */
+	_setTextureAnimFrame(frame: number): void {
+		const count = this._getTextureAnimFrameCount();
+		this._texAnimFrame = Math.max(0, Math.min(Math.floor(frame), count > 0 ? count - 1 : 0));
+		this._texAnimAccumulator = 0;
+		this._updateTextureForFrame();
+	}
+
+	/**
+	 * Set the texture animation speed multiplier.
+	 */
+	_setTextureAnimSpeed(speed: number): void {
+		this._texAnimSpeedScale = speed;
+	}
+
+	/**
+	 * Check if texture animation is playing.
+	 */
+	_isTextureAnimPlaying(): boolean {
+		return this._texAnimPlaying;
+	}
+
+	/**
+	 * Get current texture animation frame index.
+	 */
+	_getTextureAnimFrame(): number {
+		return this._texAnimFrame;
+	}
+
+	/**
+	 * Get current texture animation speed multiplier.
+	 */
+	_getTextureAnimSpeed(): number {
+		return this._texAnimSpeedScale;
+	}
+
+	/**
+	 * Get current texture animation name.
+	 */
+	_getTextureAnimName(): string {
+		return this._texAnimName;
+	}
+
 	_saveToJson(): JSONValue
 	{
 		return {
@@ -2316,7 +2554,12 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			"rotationZ": this._rotationZ,
 			"scaleX": this._scaleX,
 			"scaleY": this._scaleY,
-			"scaleZ": this._scaleZ
+			"scaleZ": this._scaleZ,
+			"texAnimPlaying": this._texAnimPlaying,
+			"texAnimFrame": this._texAnimFrame,
+			"texAnimSpeedScale": this._texAnimSpeedScale,
+			"texAnimName": this._texAnimName,
+			"texAnimForward": this._texAnimForward
 		};
 	}
 
@@ -2341,6 +2584,16 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._scaleX = uniformScale;
 			this._scaleY = uniformScale;
 			this._scaleZ = uniformScale;
+		}
+
+		// Restore texture animation state (backward compatible with older saves)
+		if ("texAnimPlaying" in data)
+		{
+			this._texAnimPlaying = data["texAnimPlaying"] as boolean;
+			this._texAnimFrame = (data["texAnimFrame"] as number) ?? 0;
+			this._texAnimSpeedScale = (data["texAnimSpeedScale"] as number) ?? 1;
+			this._texAnimName = (data["texAnimName"] as string) ?? "Default";
+			this._texAnimForward = (data["texAnimForward"] as boolean) ?? true;
 		}
 
 		// Reload model after restoring state

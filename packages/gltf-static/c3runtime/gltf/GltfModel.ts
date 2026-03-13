@@ -62,6 +62,7 @@ export class GltfModel {
 	private _textures: ITexture[] = [];
 	private _meshes: GltfMesh[] = [];
 	private _isLoaded: boolean = false;
+	private _lastExternalTexture: ITexture | null = null;
 
 	// Stats tracking
 	private _totalVertices: number = 0;
@@ -156,6 +157,22 @@ export class GltfModel {
 				mesh.texture = texture;
 			}
 		}
+		this._lastExternalTexture = texture;
+	}
+
+	/**
+	 * Update the external texture on all untextured meshes (repeatable).
+	 * Unlike applyExternalTexture(), this remaps from stored original UVs
+	 * so it can be called every frame for texture animation.
+	 */
+	updateExternalTexture(texture: ITexture, texRect: DOMRect): void {
+		for (const mesh of this._meshes) {
+			if (!mesh.texture || mesh.texture === this._lastExternalTexture) {
+				mesh.updateTexRect(texRect);
+				mesh.texture = texture;
+			}
+		}
+		this._lastExternalTexture = texture;
 	}
 
 	/** Get skinning data for a specific mesh by index */

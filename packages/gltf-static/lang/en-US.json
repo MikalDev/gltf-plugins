@@ -63,24 +63,28 @@
 				"aceCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
+					"texture-animation": "Texture Animation",
 					"bones": "Bones",
 					"physics": "Physics"
 				},
 				"conditionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
+					"texture-animation": "Texture Animation",
 					"bones": "Bones",
 					"physics": "Physics"
 				},
 				"actionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
+					"texture-animation": "Texture Animation",
 					"bones": "Bones",
 					"physics": "Physics"
 				},
 				"expressionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
+					"texture-animation": "Texture Animation",
 					"bones": "Bones",
 					"physics": "Physics"
 				},
@@ -173,6 +177,21 @@
 						"list-name": "Is lighting baked",
 						"display-text": "{my} lighting is baked",
 						"description": "True if this model has baked lighting (static lighting pre-computed for performance)."
+					},
+					"is-texture-anim-playing": {
+						"list-name": "Is texture animation playing",
+						"display-text": "{my} texture animation is playing",
+						"description": "True if a texture (sprite-frame) animation is currently playing."
+					},
+					"on-texture-anim-finished": {
+						"list-name": "On texture animation finished",
+						"display-text": "On {my} texture animation finished",
+						"description": "Triggered when a non-looping texture animation finishes playing."
+					},
+					"on-texture-frame-changed": {
+						"list-name": "On texture frame changed",
+						"display-text": "On {my} texture frame changed",
+						"description": "Triggered when the texture animation advances to a new frame."
 					}
 				},
 				"actions": {
@@ -522,6 +541,78 @@
 						"list-name": "Refresh and bake lighting",
 						"display-text": "{my} refresh and bake lighting",
 						"description": "Recalculate lighting from current light sources and bake into vertex colors."
+					},
+					"set-texture-source": {
+						"list-name": "Set texture source",
+						"display-text": "{my} set texture source to [b]{0}[/b]",
+						"description": "Set a Sprite to use as the texture animation source. The Sprite's animations and frames will be used as the texture for this 3D model.",
+						"params": {
+							"object": {
+								"name": "Sprite",
+								"desc": "The Sprite object to use as the texture animation source."
+							}
+						}
+					},
+					"play-texture-animation": {
+						"list-name": "Play texture animation",
+						"display-text": "{my} play texture animation from [b]{0}[/b]",
+						"description": "Play the texture (sprite-frame) animation.",
+						"params": {
+							"from": {
+								"name": "From",
+								"desc": "Where to start playing from.",
+								"items": {
+									"beginning": "Beginning",
+									"current-frame": "Current frame"
+								}
+							}
+						}
+					},
+					"stop-texture-animation": {
+						"list-name": "Stop texture animation",
+						"display-text": "{my} stop texture animation",
+						"description": "Stop the texture animation at the current frame."
+					},
+					"set-texture-animation": {
+						"list-name": "Set texture animation",
+						"display-text": "{my} set texture animation to [b]{0}[/b] from [b]{1}[/b]",
+						"description": "Switch to a different texture animation by name.",
+						"params": {
+							"name": {
+								"name": "Name",
+								"desc": "The animation name to switch to."
+							},
+							"from": {
+								"name": "From",
+								"desc": "Where to start from.",
+								"items": {
+									"beginning": "Beginning",
+									"current-frame": "Current frame"
+								}
+							}
+						}
+					},
+					"set-texture-anim-frame": {
+						"list-name": "Set texture animation frame",
+						"display-text": "{my} set texture animation frame to [b]{0}[/b]",
+						"description": "Jump to a specific frame in the texture animation.",
+						"params": {
+							"frame": {
+								"name": "Frame",
+								"desc": "The frame index (0-based)."
+							}
+						}
+					},
+					"set-texture-anim-speed": {
+						"list-name": "Set texture animation speed",
+						"display-text": "{my} set texture animation speed to [b]{0}[/b]",
+						"description": "Set the texture animation speed multiplier.",
+						"params": {
+							"speed": {
+								"name": "Speed",
+								"desc": "Speed multiplier (1 = normal speed, 0.5 = half speed, 2 = double speed)."
+							}
+						}
 					}
 				},
 				"expressions": {
@@ -762,6 +853,22 @@
 					"bbox-scale": {
 						"description": "Get the bounding box scale factor.",
 						"translated-name": "BBoxScale"
+					},
+					"texture-anim-frame": {
+						"description": "Get the current texture animation frame index.",
+						"translated-name": "TextureAnimFrame"
+					},
+					"texture-anim-frame-count": {
+						"description": "Get the total number of frames in the current texture animation.",
+						"translated-name": "TextureAnimFrameCount"
+					},
+					"texture-anim-speed": {
+						"description": "Get the current texture animation speed multiplier.",
+						"translated-name": "TextureAnimSpeed"
+					},
+					"texture-anim-name": {
+						"description": "Get the name of the current texture animation.",
+						"translated-name": "TextureAnimName"
 					}
 				}
 			}

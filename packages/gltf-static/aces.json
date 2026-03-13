@@ -710,6 +710,123 @@
 			}
 		]
 	},
+	"texture-animation": {
+		"conditions": [
+			{
+				"id": "is-texture-anim-playing",
+				"scriptName": "IsTextureAnimPlaying",
+				"highlight": false
+			},
+			{
+				"id": "on-texture-anim-finished",
+				"scriptName": "OnTextureAnimFinished",
+				"highlight": true,
+				"isTrigger": true
+			},
+			{
+				"id": "on-texture-frame-changed",
+				"scriptName": "OnTextureFrameChanged",
+				"highlight": false,
+				"isTrigger": true
+			}
+		],
+		"actions": [
+			{
+				"id": "set-texture-source",
+				"scriptName": "SetTextureSource",
+				"highlight": true,
+				"params": [
+					{
+						"id": "object",
+						"type": "object"
+					}
+				]
+			},
+			{
+				"id": "play-texture-animation",
+				"scriptName": "PlayTextureAnimation",
+				"highlight": true,
+				"params": [
+					{
+						"id": "from",
+						"type": "combo",
+						"items": [
+							"beginning",
+							"current-frame"
+						]
+					}
+				]
+			},
+			{
+				"id": "stop-texture-animation",
+				"scriptName": "StopTextureAnimation",
+				"highlight": false
+			},
+			{
+				"id": "set-texture-animation",
+				"scriptName": "SetTextureAnimation",
+				"highlight": false,
+				"params": [
+					{
+						"id": "name",
+						"type": "string"
+					},
+					{
+						"id": "from",
+						"type": "combo",
+						"items": [
+							"beginning",
+							"current-frame"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-texture-anim-frame",
+				"scriptName": "SetTextureAnimFrame",
+				"highlight": false,
+				"params": [
+					{
+						"id": "frame",
+						"type": "number"
+					}
+				]
+			},
+			{
+				"id": "set-texture-anim-speed",
+				"scriptName": "SetTextureAnimSpeed",
+				"highlight": false,
+				"params": [
+					{
+						"id": "speed",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"expressions": [
+			{
+				"id": "texture-anim-frame",
+				"expressionName": "TextureAnimFrame",
+				"returnType": "number"
+			},
+			{
+				"id": "texture-anim-frame-count",
+				"expressionName": "TextureAnimFrameCount",
+				"returnType": "number"
+			},
+			{
+				"id": "texture-anim-speed",
+				"expressionName": "TextureAnimSpeed",
+				"returnType": "number"
+			},
+			{
+				"id": "texture-anim-name",
+				"expressionName": "TextureAnimName",
+				"returnType": "string"
+			}
+		]
+	},
 	"physics": {
 		"conditions": [],
 		"actions": [],

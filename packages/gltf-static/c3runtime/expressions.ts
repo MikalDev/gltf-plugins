@@ -246,5 +246,26 @@ C3.Plugins.GltfStatic.Exps =
 	BBoxScale(this: SDKInstanceClass): number
 	{
 		return this._getBBoxScale();
+	},
+
+	// Texture animation expressions
+	TextureAnimFrame(this: SDKInstanceClass): number
+	{
+		return this._getTextureAnimFrame();
+	},
+
+	TextureAnimFrameCount(this: SDKInstanceClass): number
+	{
+		return this._getTextureAnimFrameCount();
+	},
+
+	TextureAnimSpeed(this: SDKInstanceClass): number
+	{
+		return this._getTextureAnimSpeed();
+	},
+
+	TextureAnimName(this: SDKInstanceClass): string
+	{
+		return this._getTextureAnimName();
 	}
 };

@@ -149,5 +149,36 @@ C3.Plugins.GltfStatic.Acts =
 	RefreshAndBakeLighting(this: SDKInstanceClass): void
 	{
 		this._refreshAndBakeLighting();
+	},
+
+	// Texture animation actions
+	SetTextureSource(this: SDKInstanceClass, objectClass: any): void
+	{
+		this._setTextureSource(objectClass);
+	},
+
+	PlayTextureAnimation(this: SDKInstanceClass, from: number): void
+	{
+		this._playTextureAnimation(from === 0); // 0 = beginning, 1 = current frame
+	},
+
+	StopTextureAnimation(this: SDKInstanceClass): void
+	{
+		this._stopTextureAnimation();
+	},
+
+	SetTextureAnimation(this: SDKInstanceClass, name: string, from: number): void
+	{
+		this._setTextureAnimation(name, from === 0);
+	},
+
+	SetTextureAnimFrame(this: SDKInstanceClass, frame: number): void
+	{
+		this._setTextureAnimFrame(frame);
+	},
+
+	SetTextureAnimSpeed(this: SDKInstanceClass, speed: number): void
+	{
+		this._setTextureAnimSpeed(speed);
 	}
 };
