@@ -65,6 +65,12 @@ C3.Plugins.GltfStatic.Cnds =
 		return this._hasBone(name);
 	},
 
+	// Built-in model conditions
+	IsBuiltinEnabled(this: SDKInstanceClass): boolean
+	{
+		return this._isBuiltinEnabled();
+	},
+
 	// Lighting baking conditions
 	IsLightingBaked(this: SDKInstanceClass): boolean
 	{

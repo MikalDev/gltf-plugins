@@ -62,6 +62,12 @@ C3.Plugins.GltfStatic.Exps =
 		return this._getMeshNameAt(index);
 	},
 
+	// Built-in model expressions
+	BuiltinModelType(this: SDKInstanceClass): string
+	{
+		return this._getBuiltinModelType();
+	},
+
 	// Animation expressions
 	AnimationTime(this: SDKInstanceClass): number
 	{

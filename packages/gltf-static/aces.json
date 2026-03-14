@@ -49,6 +49,11 @@
 				"id": "is-lighting-baked",
 				"scriptName": "IsLightingBaked",
 				"highlight": false
+			},
+			{
+				"id": "is-builtin-enabled",
+				"scriptName": "IsBuiltinEnabled",
+				"highlight": false
 			}
 		],
 		"actions": [
@@ -245,6 +250,41 @@
 				"id": "refresh-and-bake-lighting",
 				"scriptName": "RefreshAndBakeLighting",
 				"highlight": false
+			},
+			{
+				"id": "set-builtin-enabled",
+				"scriptName": "SetBuiltinEnabled",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
+			},
+			{
+				"id": "set-builtin-model",
+				"scriptName": "SetBuiltinModel",
+				"highlight": false,
+				"params": [
+					{
+						"id": "type",
+						"type": "combo",
+						"items": [
+							"cube",
+							"sphere",
+							"capsule",
+							"cylinder",
+							"cone",
+							"ramp",
+							"plane"
+						]
+					}
+				]
 			}
 		],
 		"expressions": [
@@ -338,6 +378,11 @@
 				"id": "quat-w",
 				"expressionName": "QuatW",
 				"returnType": "number"
+			},
+			{
+				"id": "builtin-model-type",
+				"expressionName": "BuiltinModelType",
+				"returnType": "string"
 			}
 		]
 	},

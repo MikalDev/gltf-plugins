@@ -151,6 +151,17 @@ C3.Plugins.GltfStatic.Acts =
 		this._refreshAndBakeLighting();
 	},
 
+	// Built-in model actions
+	SetBuiltinEnabled(this: SDKInstanceClass, enabled: number): void
+	{
+		this._setBuiltinEnabled(enabled !== 0);
+	},
+
+	SetBuiltinModel(this: SDKInstanceClass, typeIndex: number): void
+	{
+		this._setBuiltinModel(typeIndex);
+	},
+
 	// Texture animation actions
 	SetTextureSource(this: SDKInstanceClass, objectClass: any): void
 	{

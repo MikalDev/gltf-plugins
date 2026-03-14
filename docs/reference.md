@@ -43,6 +43,7 @@ Load and render glTF 3D models (.gltf/.glb). Supports skeletal animation, mesh v
 | Is mesh visible | Named mesh is visible |
 | Is mesh visible by index | Mesh at index is visible |
 | Is lighting baked | Static lighting is pre-computed |
+| Is built-in enabled | Instance is using a built-in primitive model |
 
 **Actions**
 
@@ -64,6 +65,8 @@ Load and render glTF 3D models (.gltf/.glb). Supports skeletal animation, mesh v
 | Bake lighting | | Pre-compute lighting into vertex colors |
 | Unbake lighting | | Return to dynamic lighting |
 | Refresh and bake lighting | | Recalculate and bake from current lights |
+| Set built-in enabled | Enabled / Disabled | Toggle built-in model mode; loads selected type when enabled |
+| Set built-in model | Cube / Sphere / Capsule / Cylinder / Cone / Ramp / Plane | Select and load a built-in primitive (auto-enables built-in mode) |
 
 **Expressions**
 
@@ -83,6 +86,7 @@ Load and render glTF 3D models (.gltf/.glb). Supports skeletal animation, mesh v
 | `MeshCount` | Number of meshes |
 | `MeshNames` | JSON array of mesh names |
 | `MeshNameAt(index)` | Mesh name at index |
+| `BuiltinModelType` | Current built-in type name (e.g. "cube"), or empty if not using built-in |
 
 #### Animation
 
@@ -242,6 +246,15 @@ Access via `runtime.objects.Mesh.getFirstInstance()` or iterate instances. All s
 | `_getMeshCount(): number` | Mesh count |
 | `_getMeshNames(): string` | JSON array of names |
 | `_getMeshNameAt(index: number): string` | Name at index |
+
+#### Built-in Model
+
+| Method | Description |
+|--------|-------------|
+| `_isBuiltinEnabled(): boolean` | Whether built-in mode is active |
+| `_setBuiltinEnabled(enabled: boolean): void` | Toggle built-in mode; loads selected type when enabled |
+| `_setBuiltinModel(typeIndex: number): void` | Select and load a built-in primitive (0=cube, 1=sphere, 2=capsule, 3=cylinder, 4=cone, 5=ramp, 6=plane) |
+| `_getBuiltinModelType(): string` | Current type name, or empty if not using built-in |
 
 #### Mesh Visibility
 

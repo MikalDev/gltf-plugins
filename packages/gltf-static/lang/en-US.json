@@ -179,6 +179,11 @@
 						"display-text": "{my} lighting is baked",
 						"description": "True if this model has baked lighting (static lighting pre-computed for performance)."
 					},
+					"is-builtin-enabled": {
+						"list-name": "Is built-in enabled",
+						"display-text": "{my} built-in model is enabled",
+						"description": "True if this instance is using a built-in primitive model."
+					},
 					"is-texture-anim-playing": {
 						"list-name": "Is texture animation playing",
 						"display-text": "{my} texture animation is playing",
@@ -543,6 +548,41 @@
 						"display-text": "{my} refresh and bake lighting",
 						"description": "Recalculate lighting from current light sources and bake into vertex colors."
 					},
+					"set-builtin-enabled": {
+						"list-name": "Set built-in enabled",
+						"display-text": "{my} set built-in model [b]{0}[/b]",
+						"description": "Enable or disable using a built-in primitive model. When enabled, loads the selected built-in model.",
+						"params": {
+							"enabled": {
+								"name": "State",
+								"desc": "Whether to enable or disable the built-in model.",
+								"items": {
+									"disabled": "Disabled",
+									"enabled": "Enabled"
+								}
+							}
+						}
+					},
+					"set-builtin-model": {
+						"list-name": "Set built-in model",
+						"display-text": "{my} set built-in model to [b]{0}[/b]",
+						"description": "Select which built-in primitive to use and load it. Automatically enables built-in mode.",
+						"params": {
+							"type": {
+								"name": "Type",
+								"desc": "The built-in primitive type.",
+								"items": {
+									"cube": "Cube",
+									"sphere": "Sphere",
+									"capsule": "Capsule",
+									"cylinder": "Cylinder",
+									"cone": "Cone",
+									"ramp": "Ramp",
+									"plane": "Plane"
+								}
+							}
+						}
+					},
 					"set-texture-source": {
 						"list-name": "Set texture source",
 						"display-text": "{my} set texture source to [b]{0}[/b]",
@@ -690,6 +730,10 @@
 					"quat-w": {
 						"description": "Get the quaternion W component.",
 						"translated-name": "QuatW"
+					},
+					"builtin-model-type": {
+						"description": "Get the current built-in model type name (cube, sphere, capsule, cylinder, cone, ramp, plane), or empty string if not using a built-in.",
+						"translated-name": "BuiltinModelType"
 					},
 					"animation-time": {
 						"description": "Get the current animation playback time in seconds.",

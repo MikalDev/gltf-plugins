@@ -185,8 +185,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Auto-load model: built-in model takes priority over URL
 			if (this._useBuiltinModel)
 			{
-				const builtinUrls = ["builtin:cube", "builtin:sphere", "builtin:capsule", "builtin:cylinder", "builtin:cone", "builtin:ramp", "builtin:plane"];
-				const builtinUrl = builtinUrls[this._builtinModelType] ?? "builtin:cube";
+				const builtinUrl = "builtin:" + (GltfStaticInstance.BUILTIN_NAMES[this._builtinModelType] ?? "cube");
 				modelLoadLog("Auto-loading built-in model:", builtinUrl);
 				this._loadModel(builtinUrl);
 			}
@@ -890,6 +889,50 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const meshes = this._model?.meshes;
 		if (!meshes || index < 0 || index >= meshes.length) return "";
 		return meshes[index].name;
+	}
+
+	// ========================================================================
+	// Built-in Model Methods
+	// ========================================================================
+
+	static readonly BUILTIN_NAMES = ["cube", "sphere", "capsule", "cylinder", "cone", "ramp", "plane"] as const;
+
+	_isBuiltinEnabled(): boolean
+	{
+		return this._useBuiltinModel;
+	}
+
+	_setBuiltinEnabled(enabled: boolean): void
+	{
+		if (this._useBuiltinModel === enabled) return;
+		this._useBuiltinModel = enabled;
+		if (enabled)
+		{
+			const builtinUrl = "builtin:" + (GltfStaticInstance.BUILTIN_NAMES[this._builtinModelType] ?? "cube");
+			this._forceLoadModel(builtinUrl);
+		}
+	}
+
+	_setBuiltinModel(typeIndex: number): void
+	{
+		this._builtinModelType = typeIndex;
+		this._useBuiltinModel = true;
+		const builtinUrl = "builtin:" + (GltfStaticInstance.BUILTIN_NAMES[typeIndex] ?? "cube");
+		this._forceLoadModel(builtinUrl);
+	}
+
+	/** Force a model load, cancelling any in-progress load. */
+	_forceLoadModel(url: string): void
+	{
+		this._isLoading = false;
+		this._modelUrl = "";
+		this._loadModel(url);
+	}
+
+	_getBuiltinModelType(): string
+	{
+		if (!this._useBuiltinModel) return "";
+		return GltfStaticInstance.BUILTIN_NAMES[this._builtinModelType] ?? "";
 	}
 
 	// ========================================================================
