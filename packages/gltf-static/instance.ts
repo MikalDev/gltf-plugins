@@ -244,6 +244,27 @@ class EditorGltfModel {
 		return this._textures;
 	}
 
+	/** Compute bounding box from all mesh positions. Returns { min, max } each as [x,y,z]. */
+	computeBoundingBox(): { min: [number, number, number]; max: [number, number, number] } {
+		let minX = Infinity, minY = Infinity, minZ = Infinity;
+		let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+		for (const mesh of this._meshes) {
+			const pos = mesh.positions;
+			for (let i = 0; i < pos.length; i += 3) {
+				const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+				if (x < minX) minX = x;
+				if (x > maxX) maxX = x;
+				if (y < minY) minY = y;
+				if (y > maxY) maxY = y;
+				if (z < minZ) minZ = z;
+				if (z > maxZ) maxZ = z;
+			}
+		}
+
+		return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+	}
+
 	/**
 	 * Load model from ArrayBuffer (used by editor which gets blob from project file).
 	 */
@@ -814,6 +835,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	_lastModelUrl: string = "";
 	_layoutView: SDK.UI.ILayoutView | null = null;
 
+	// Last auto-set size from bounding box (null = never auto-sized)
+	_lastAutoSize: { w: number; h: number; d: number } | null = null;
+
 	// Transform cache (per-instance since each instance has different position/rotation)
 	_transformedMeshes: { positions: Float32Array; normals: Float32Array | null; uvs: Float32Array; indices: Uint16Array; textureIndex: number; vertexCount: number }[] = [];
 	_lastTransformKey: string = "";
@@ -1013,6 +1037,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		try
 		{
 			this._model = await this._getOrLoadModel(url);
+			this._updateEditorBounds();
 			modelLoadLog("Model ready:", url);
 		}
 		catch (err)
@@ -1026,6 +1051,41 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			if (this._layoutView)
 				this._layoutView.Refresh();
 		}
+	}
+
+	/**
+	 * Update the editor instance's width/height/depth to match the model's bounding box.
+	 * Skips if the user has manually resized since the last auto-size.
+	 */
+	_updateEditorBounds(): void
+	{
+		if (!this._model?.isLoaded) return;
+
+		// Skip if user has manually resized since last auto-size
+		if (this._lastAutoSize)
+		{
+			const curW = this._inst.GetWidth();
+			const curH = this._inst.GetHeight();
+			if (Math.abs(curW - this._lastAutoSize.w) > 0.01 ||
+				Math.abs(curH - this._lastAutoSize.h) > 0.01)
+			{
+				return;
+			}
+		}
+
+		const { min, max } = this._model.computeBoundingBox();
+		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
+
+		const w = (max[0] - min[0]) * scale;
+		const h = (max[1] - min[1]) * scale;
+		const d = (max[2] - min[2]) * scale;
+
+		this._inst.SetSize(w, h);
+		// SetDepth not yet in SDK type defs (available in C3 r472+)
+		if ("SetDepth" in this._inst)
+			(this._inst as SDK.IWorldInstance & { SetDepth(d: number): void }).SetDepth(d);
+
+		this._lastAutoSize = { w, h, d };
 	}
 
 	/**
@@ -1449,6 +1509,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			id === PROP_ROTATION_Z || id === PROP_SCALE)
 		{
 			this._lastTransformKey = "";
+
+			if (id === PROP_SCALE)
+				this._updateEditorBounds();
 		}
 	}
 

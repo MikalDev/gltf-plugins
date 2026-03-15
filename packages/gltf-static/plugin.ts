@@ -21,7 +21,7 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 		this._info.SetIsRotatable(true);
 		this._info.SetHasImage(true);
 		this._info.SetSupportsEffects(true);
-		this._info.SetMustPreDraw(true);
+		this._info.SetMustPreDraw(false);
 		this._info.SetIs3D(true);
 		this._info.SetSupportsZElevation(true);
 		this._info.SetRuntimeModuleMainScript("c3runtime/main.js");
