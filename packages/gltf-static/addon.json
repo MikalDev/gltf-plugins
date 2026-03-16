@@ -12,12 +12,14 @@
 	"description": "Load and render 3D mesh models in Construct 3.",
 	"editor-scripts": [
 		"c3runtime/builtin-models.js",
+		"c3runtime/gl-matrix-editor.js",
 		"plugin.js",
 		"type.js",
 		"instance.js"
 	],
 	"file-list": [
 		"c3runtime/builtin-models.js",
+		"c3runtime/gl-matrix-editor.js",
 		"c3runtime/main.js",
 		"c3runtime/plugin.js",
 		"c3runtime/type.js",

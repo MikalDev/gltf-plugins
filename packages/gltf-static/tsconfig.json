@@ -19,6 +19,7 @@
 	],
 	"exclude": [
 		"build.js",
-		"c3Example.ts"
+		"c3Example.ts",
+		"c3runtime/gl-matrix-editor.ts"
 	]
 }
