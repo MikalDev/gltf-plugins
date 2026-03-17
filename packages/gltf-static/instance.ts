@@ -105,7 +105,6 @@ interface GltfMesh {
 }
 
 interface GltfNode {
-	name?: string;
 	mesh?: number;
 	children?: number[];
 	translation?: number[];
@@ -131,9 +130,82 @@ interface GltfDocument {
 	materials?: GltfMaterial[];
 }
 
-// gl-matrix from editor bundle (c3runtime/gl-matrix-editor.js, loaded before instance.js)
-const glMat4 = (globalThis as any).GltfBundle.mat4;
-const glVec3 = (globalThis as any).GltfBundle.vec3;
+/** Simple 4x4 matrix operations */
+function mat4Identity(): Float32Array {
+	const m = new Float32Array(16);
+	m[0] = m[5] = m[10] = m[15] = 1;
+	return m;
+}
+
+function mat4Multiply(out: Float32Array, a: Float32Array, b: Float32Array): Float32Array {
+	const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+	const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+	const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+	const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+	let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+	out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+	b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+	out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+	b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+	out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+	b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+	out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+
+	return out;
+}
+
+function mat4FromRotationTranslationScale(out: Float32Array, q: number[], t: number[], s: number[]): Float32Array {
+	// Quaternion to rotation matrix
+	const x = q[0], y = q[1], z = q[2], w = q[3];
+	const x2 = x + x, y2 = y + y, z2 = z + z;
+	const xx = x * x2, xy = x * y2, xz = x * z2;
+	const yy = y * y2, yz = y * z2, zz = z * z2;
+	const wx = w * x2, wy = w * y2, wz = w * z2;
+	const sx = s[0], sy = s[1], sz = s[2];
+
+	out[0] = (1 - (yy + zz)) * sx;
+	out[1] = (xy + wz) * sx;
+	out[2] = (xz - wy) * sx;
+	out[3] = 0;
+	out[4] = (xy - wz) * sy;
+	out[5] = (1 - (xx + zz)) * sy;
+	out[6] = (yz + wx) * sy;
+	out[7] = 0;
+	out[8] = (xz + wy) * sz;
+	out[9] = (yz - wx) * sz;
+	out[10] = (1 - (xx + yy)) * sz;
+	out[11] = 0;
+	out[12] = t[0];
+	out[13] = t[1];
+	out[14] = t[2];
+	out[15] = 1;
+
+	return out;
+}
+
+function transformPoint(out: number[], p: number[], m: Float32Array): void {
+	const x = p[0], y = p[1], z = p[2];
+	const w = m[3] * x + m[7] * y + m[11] * z + m[15] || 1;
+	out[0] = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
+	out[1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
+	out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w;
+}
 
 /**
  * Editor glTF model - stores parsed mesh data for CPU rendering.
@@ -321,7 +393,7 @@ class EditorGltfModel {
 			if (!scene?.nodes) continue;
 
 			for (const nodeIdx of scene.nodes) {
-				this._processNode(doc, buffers, nodeIdx, glMat4.create());
+				this._processNode(doc, buffers, nodeIdx, mat4Identity());
 			}
 		}
 	}
@@ -387,19 +459,19 @@ class EditorGltfModel {
 		if (!node) return;
 
 		// Compute local matrix
-		let localMatrix = glMat4.create();
+		let localMatrix = mat4Identity();
 		if (node.matrix) {
 			localMatrix = new Float32Array(node.matrix);
 		} else {
 			const t = node.translation || [0, 0, 0];
 			const r = node.rotation || [0, 0, 0, 1];
 			const s = node.scale || [1, 1, 1];
-			glMat4.fromRotationTranslationScale(localMatrix, r, t, s);
+			mat4FromRotationTranslationScale(localMatrix, r, t, s);
 		}
 
 		// Compute world matrix
-		const worldMatrix = glMat4.create();
-		glMat4.multiply(worldMatrix, parentMatrix, localMatrix);
+		const worldMatrix = mat4Identity();
+		mat4Multiply(worldMatrix, parentMatrix, localMatrix);
 
 		// Process mesh if present
 		if (node.mesh !== undefined) {
@@ -495,41 +567,45 @@ class EditorGltfModel {
 
 		const vertexCount = positions.length / 3;
 
-		// Transform positions by world matrix (matches runtime GltfModel._transformPositions)
+		// Transform positions by world matrix
 		const transformedPositions = new Float32Array(positions.length);
-		const tempVec = glVec3.create();
+		const tempPoint = [0, 0, 0];
 		for (let i = 0; i < vertexCount; i++) {
 			const idx = i * 3;
-			glVec3.set(tempVec, positions[idx], positions[idx + 1], positions[idx + 2]);
-			glVec3.transformMat4(tempVec, tempVec, worldMatrix);
-			transformedPositions[idx] = tempVec[0];
-			transformedPositions[idx + 1] = tempVec[1];
-			transformedPositions[idx + 2] = tempVec[2];
+			tempPoint[0] = positions[idx];
+			tempPoint[1] = positions[idx + 1];
+			tempPoint[2] = positions[idx + 2];
+			transformPoint(tempPoint, tempPoint, worldMatrix);
+			transformedPositions[idx] = tempPoint[0];
+			transformedPositions[idx + 1] = tempPoint[1];
+			transformedPositions[idx + 2] = tempPoint[2];
 		}
 
 		// Transform normals by world matrix (rotation only, no translation)
-		// Matches runtime GltfModel._transformNormals
 		let transformedNormals: Float32Array | null = null;
 		if (normals) {
 			transformedNormals = new Float32Array(normals.length);
-			const m0 = worldMatrix[0], m1 = worldMatrix[1], m2 = worldMatrix[2];
-			const m4 = worldMatrix[4], m5 = worldMatrix[5], m6 = worldMatrix[6];
-			const m8 = worldMatrix[8], m9 = worldMatrix[9], m10 = worldMatrix[10];
 			for (let i = 0; i < vertexCount; i++) {
 				const idx = i * 3;
-				const nx = normals[idx], ny = normals[idx + 1], nz = normals[idx + 2];
-				const tnx = m0 * nx + m4 * ny + m8 * nz;
-				const tny = m1 * nx + m5 * ny + m9 * nz;
-				const tnz = m2 * nx + m6 * ny + m10 * nz;
+				const nx = normals[idx];
+				const ny = normals[idx + 1];
+				const nz = normals[idx + 2];
+
+				// Transform normal by rotation part of matrix (3x3 upper-left)
+				const tnx = worldMatrix[0] * nx + worldMatrix[4] * ny + worldMatrix[8] * nz;
+				const tny = worldMatrix[1] * nx + worldMatrix[5] * ny + worldMatrix[9] * nz;
+				const tnz = worldMatrix[2] * nx + worldMatrix[6] * ny + worldMatrix[10] * nz;
+
+				// Normalize the result
 				const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
-				if (len > 0.0001) {
+				if (len > 0) {
 					transformedNormals[idx] = tnx / len;
 					transformedNormals[idx + 1] = tny / len;
 					transformedNormals[idx + 2] = tnz / len;
 				} else {
 					transformedNormals[idx] = 0;
-					transformedNormals[idx + 1] = 1;
-					transformedNormals[idx + 2] = 0;
+					transformedNormals[idx + 1] = 0;
+					transformedNormals[idx + 2] = 1;
 				}
 			}
 		}
@@ -1050,7 +1126,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const z = (this._inst as any).GetZ();
 		const angle = this._inst.GetAngle();
 		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
-		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
+		// Y rotation offset by +180 degrees to match runtime orientation
+		const rotY = (((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) + 180) * DEG_TO_RAD;
 		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 

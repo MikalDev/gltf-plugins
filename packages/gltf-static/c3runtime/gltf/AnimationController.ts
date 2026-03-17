@@ -20,6 +20,10 @@ function debugWarn(...args: unknown[]): void {
 	if (DEBUG) console.warn(LOG_PREFIX, ...args);
 }
 
+/** Performance warning threshold for CPU skinning */
+const MAX_CPU_SKINNING_VERTICES = 10000;
+const CPU_WARNING_LOGGED = new WeakSet<AnimationController>();
+
 /** Mesh data required by AnimationController */
 export interface AnimationMeshData {
 	/** Original bind pose positions (Float32Array, 3 floats per vertex) */
@@ -165,7 +169,16 @@ export class AnimationController {
 			totalVertices += vertexCount / 3;
 		}
 
-			// Pre-allocate temp buffers
+		// Warn about high vertex counts (review suggestion)
+		if (totalVertices > MAX_CPU_SKINNING_VERTICES && !CPU_WARNING_LOGGED.has(this)) {
+			console.warn(
+				`${LOG_PREFIX} CPU skinning ${totalVertices} vertices (>${MAX_CPU_SKINNING_VERTICES}). ` +
+				`Consider using worker-based skinning for better performance.`
+			);
+			CPU_WARNING_LOGGED.add(this);
+		}
+
+		// Pre-allocate temp buffers
 		this._tempVec3A = new Float32Array(3);
 		this._tempVec3B = new Float32Array(3);
 		this._tempQuatA = new Float32Array(4);
@@ -174,10 +187,9 @@ export class AnimationController {
 		this._tempMat4B = new Float32Array(16);
 
 		// Detect IBM scale mismatch (e.g., Blender exports with unapplied scale)
-		// Skip when rootAncestorTransform is present — root joints already include the transform,
-		// so the joint world matrix properly cancels with the IBM without normalization
+		// The first column of the first IBM should have unit length for a properly scaled model
 		const ibm = this._skinData.inverseBindMatrices;
-		if (jointCount > 0 && !this._skinData.rootAncestorTransform) {
+		if (jointCount > 0) {
 			const ibmScale = Math.sqrt(ibm[0] * ibm[0] + ibm[1] * ibm[1] + ibm[2] * ibm[2]);
 			if (ibmScale > 0.001 && Math.abs(ibmScale - 1.0) > 0.1) {
 				this._translationScale = 1.0 / ibmScale;
@@ -966,24 +978,15 @@ export class AnimationController {
 			const parentMat = this._jointWorldMatrices.subarray(parentOffset, parentOffset + 16);
 			mat4.multiply(worldMat as mat4, parentMat as mat4, this._tempMat4A as mat4);
 		} else {
-			// Root joint: world matrix = rootAncestorTransform * local matrix
-			// Includes non-joint ancestor transforms (glTF root scale/rotation)
+			// Root joint: world matrix = local matrix
+			// Build local matrix from TRS
 			mat4.fromRotationTranslationScale(
 				this._tempMat4A as mat4,
 				transform.rotation as quat,
 				transform.translation as vec3,
 				transform.scale as vec3
 			);
-
-			if (this._skinData.rootAncestorTransform) {
-				mat4.multiply(
-					worldMat as mat4,
-					this._skinData.rootAncestorTransform as unknown as mat4,
-					this._tempMat4A as mat4
-				);
-			} else {
-				worldMat.set(this._tempMat4A);
-			}
+			worldMat.set(this._tempMat4A);
 		}
 
 		// Mark as computed

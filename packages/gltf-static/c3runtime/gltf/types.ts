@@ -46,8 +46,6 @@ export interface CachedSkinData {
 	inverseBindMatrices: Float32Array;
 	/** Map from glTF node to joint index for fast lookup */
 	nodeToJointIndex: Map<GltfNode, number>;
-	/** World matrix of non-joint ancestors above the skeleton root (applies glTF root scale/rotation to skinned meshes) */
-	rootAncestorTransform?: Float32Array;
 }
 
 // ============================================================================

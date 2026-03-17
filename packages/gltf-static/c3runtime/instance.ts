@@ -506,6 +506,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			}
 
 			// Fallback: use layout scroll position
+			console.log("[Specular] No 3DCamera found, using fallback");
 			const layout = this.runtime.layout;
 			const camPos = new Float32Array([
 				layout.scrollX,
@@ -514,7 +515,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			]);
 			Lighting.setDebugCamera(camPos);
 			return camPos;
-		} catch {
+		} catch (e) {
+			console.error("[Specular] Error getting camera position:", e);
 			return new Float32Array([0, 0, 500]);
 		}
 	}
@@ -1025,19 +1027,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		try
 		{
-			const skin = skins[0]; // Use first skin
 			this._animationController = new AnimationController({
-				skinData: skin,
+				skinData: skins[0], // Use first skin
 				animations: [...this._model.animations],
 				meshes: animMeshes
 			});
 
-			// Use worker skinning when vertex count is high enough that offloading
-			// outweighs message-passing overhead (~0.5-1ms). Below ~2000 verts,
-			// main-thread skinning is fast (<1ms) and workers add more latency than
-			// they save. Above that threshold, keeping the main thread free is worth it.
-			const totalVerts = animMeshes.reduce((sum, m) => sum + m.originalPositions.length / 3, 0);
-			this._animationController.useWorkerSkinning = totalVerts >= 2000;
+			// Force enable worker skinning - workers handle skinning, AnimationController skips main thread skinning
+			this._animationController.useWorkerSkinning = true;
+			console.log("[GltfStatic] Worker skinning FORCED enabled for animation controller");
 
 			// Set up onComplete callback to trigger condition
 			this._animationController.onComplete = () =>

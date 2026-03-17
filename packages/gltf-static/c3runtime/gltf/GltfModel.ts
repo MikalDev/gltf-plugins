@@ -33,9 +33,6 @@ function debugWarn(...args: unknown[]): void {
 // glTF primitive modes
 const GLTF_TRIANGLES = 4;
 
-// Pre-allocated identity matrix for comparisons
-const MAT4_IDENTITY = mat4.create();
-
 // Track last frame cull mode was set (avoid redundant state changes across models)
 let lastCullModeFrame = -1;
 
@@ -352,7 +349,7 @@ export class GltfModel {
 				const children = scene.listChildren();
 				debugLog(`Scene has ${children.length} root node(s)`);
 				for (const nodeDef of children) {
-						const rootNode = this._processNode(
+					const rootNode = this._processNode(
 						renderer,
 						nodeDef,
 						cached.textureMap,
@@ -362,8 +359,7 @@ export class GltfModel {
 						cached.meshSkinningData,
 						meshIndexCounter,
 						nodeIndexCounter,
-						globalNodeToJointIndex,
-						cached.skins
+						globalNodeToJointIndex
 					);
 					this._rootNodes.push(rootNode);
 				}
@@ -774,7 +770,6 @@ export class GltfModel {
 		meshIndexCounter: { value: number },
 		nodeIndexCounter: { value: number },
 		globalNodeToJointIndex: Map<GltfNodeDef, number>,
-		skins: CachedSkinData[],
 		depth: number = 0
 	): GltfNode {
 		// Generate node name with fallback for unnamed nodes
@@ -830,14 +825,12 @@ export class GltfModel {
 
 				const currentMeshIndex = meshIndexCounter.value;
 
-				const skinRootTransform = skinIndex !== undefined ? skins[skinIndex]?.rootAncestorTransform : undefined;
 				const gltfMesh = this._createMesh(
 					renderer,
 					primitive,
 					textureMap,
 					skinIndex,
-					node,
-					skinRootTransform
+					node
 				);
 
 				if (gltfMesh) {
@@ -869,7 +862,7 @@ export class GltfModel {
 			this._processNode(
 				renderer, child, textureMap, node, loadedMeshes,
 				skinMap, meshSkinningData, meshIndexCounter, nodeIndexCounter,
-				globalNodeToJointIndex, skins, depth + 1
+				globalNodeToJointIndex, depth + 1
 			);
 		}
 
@@ -888,8 +881,7 @@ export class GltfModel {
 		primitive: Primitive,
 		textureMap: Map<Texture, ITexture>,
 		skinIndex?: number,
-		parentNode?: GltfNode,
-		skinRootAncestorTransform?: Float32Array
+		parentNode?: GltfNode
 	): GltfMesh | null {
 		// Extract raw data
 		const posAccessor = primitive.getAttribute("POSITION");
@@ -979,19 +971,12 @@ export class GltfModel {
 		const hasAnimatedAncestor = parentNode?.hasAnimatedAncestor() ?? false;
 
 		if (skinIndex !== undefined) {
-			// Skinned mesh: bake root ancestor transform into bind positions (matches static mesh baking)
-			if (skinRootAncestorTransform) {
-				positions = this._transformPositions(new Float32Array(positions), skinRootAncestorTransform as unknown as mat4);
-				if (normals) {
-					normals = this._transformNormals(new Float32Array(normals), skinRootAncestorTransform as unknown as mat4);
-				}
-			} else {
-				positions = new Float32Array(positions);
-				if (normals) {
-					normals = new Float32Array(normals);
-				}
-				debugLog(`    Skinned mesh: keeping bind pose positions`);
+			// Skinned mesh: keep bind pose positions (skinning applies transforms at runtime)
+			positions = new Float32Array(positions);
+			if (normals) {
+				normals = new Float32Array(normals);
 			}
+			debugLog(`    Skinned mesh: keeping bind pose positions`);
 		} else if (hasAnimatedAncestor) {
 			// Static mesh with animated ancestor: keep local positions (node hierarchy applies at runtime)
 			positions = new Float32Array(positions);
@@ -1213,37 +1198,6 @@ export class GltfModel {
 			});
 		}
 
-		// Compute non-joint ancestor transform above the skeleton root.
-		// The full transform (scale + rotation + translation) is needed so that the
-		// root joint world matrices match the space that the inverse bind matrices were
-		// computed in.  Stripping rotation causes a mismatch when ancestor nodes carry
-		// non-identity rotations (e.g. Blender's Z-up → Y-up 90° X rotation on the
-		// Armature node).
-		let rootAncestorTransform: Float32Array | undefined;
-		const firstRootJoint = joints.find(j => j.parentIndex === -1);
-		if (firstRootJoint) {
-			// Collect ancestors bottom-up, then multiply root-down (matches scene graph traversal order)
-			const ancestors: GltfNodeDef[] = [];
-			let ancestor: GltfNodeDef | null = jointNodes[firstRootJoint.index].getParentNode();
-			while (ancestor) {
-				if (!nodeToJointIndex.has(ancestor)) ancestors.push(ancestor);
-				ancestor = ancestor.getParentNode();
-			}
-			const result = mat4.create();
-			for (let i = ancestors.length - 1; i >= 0; i--) {
-				mat4.multiply(result, result, this._getLocalMatrix(ancestors[i]));
-			}
-			// Check if the ancestor transform is non-identity
-			const identity = mat4.create();
-			let isIdentity = true;
-			for (let k = 0; k < 16; k++) {
-				if (Math.abs(result[k] - identity[k]) > 1e-4) { isIdentity = false; break; }
-			}
-			if (!isIdentity) {
-				rootAncestorTransform = new Float32Array(result);
-			}
-		}
-
 		// Extract inverse bind matrices
 		const ibmAccessor = skin.getInverseBindMatrices();
 		let inverseBindMatrices: Float32Array;
@@ -1271,7 +1225,12 @@ export class GltfModel {
 			}
 		}
 
-		return { name, joints, inverseBindMatrices, nodeToJointIndex, rootAncestorTransform };
+		return {
+			name,
+			joints,
+			inverseBindMatrices,
+			nodeToJointIndex
+		};
 	}
 
 	// ========================================================================
