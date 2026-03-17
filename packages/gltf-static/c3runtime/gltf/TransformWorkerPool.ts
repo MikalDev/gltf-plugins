@@ -381,6 +381,44 @@ function skinMeshInto(origPositions, origNormals, outPositions, outNormals, offs
 	}
 }
 
+// Post-transform skinned vertices from skeleton-local space to world space.
+// Applies full 4x4 matrix to positions (w=1) and upper 3x3 to normals (+ normalize).
+function postTransformVertices(positions, normals, offset, vertexCount, matrix) {
+	const m0 = matrix[0], m1 = matrix[1], m2 = matrix[2];
+	const m4 = matrix[4], m5 = matrix[5], m6 = matrix[6];
+	const m8 = matrix[8], m9 = matrix[9], m10 = matrix[10];
+	const m12 = matrix[12], m13 = matrix[13], m14 = matrix[14];
+	const hasNormals = normals !== null;
+
+	for (let i = 0; i < vertexCount; i++) {
+		const idx = offset + i * 3;
+
+		// Transform position (mat4 * vec3, w=1)
+		const px = positions[idx], py = positions[idx + 1], pz = positions[idx + 2];
+		positions[idx]     = m0 * px + m4 * py + m8 * pz + m12;
+		positions[idx + 1] = m1 * px + m5 * py + m9 * pz + m13;
+		positions[idx + 2] = m2 * px + m6 * py + m10 * pz + m14;
+
+		// Transform normal (upper 3x3, then normalize)
+		if (hasNormals) {
+			const nx = normals[idx], ny = normals[idx + 1], nz = normals[idx + 2];
+			const tnx = m0 * nx + m4 * ny + m8 * nz;
+			const tny = m1 * nx + m5 * ny + m9 * nz;
+			const tnz = m2 * nx + m6 * ny + m10 * nz;
+			const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
+			if (len > 0.0001) {
+				normals[idx] = tnx / len;
+				normals[idx + 1] = tny / len;
+				normals[idx + 2] = tnz / len;
+			} else {
+				normals[idx] = 0;
+				normals[idx + 1] = 1;
+				normals[idx + 2] = 0;
+			}
+		}
+	}
+}
+
 self.onmessage = (e) => {
 	const msg = e.data;
 
@@ -457,6 +495,7 @@ self.onmessage = (e) => {
 			const boneMatrices = msg.boneMatrices;
 			const requestedMeshIds = msg.meshIds;
 			const lightConfig = msg.lightConfig; // Optional: { ambient, lights, modelRotation }
+			const postTransform = msg.postTransform; // Optional: 4x4 matrix (instanceMatrix * RAT)
 
 			// Calculate total size and check if any mesh has normals
 			let totalFloats = 0;
@@ -489,14 +528,23 @@ self.onmessage = (e) => {
 			for (let i = 0; i < meshEntries.length; i++) {
 				const { meshId, entry } = meshEntries[i];
 
-				// Apply skinning to positions and normals
+				// Apply skinning to positions and normals (skeleton-local space)
 				skinMeshInto(
 					entry.positions, entry.normals,
 					packedPositions, packedNormals,
 					offset, boneMatrices, entry.joints, entry.weights, entry.vertexCount
 				);
 
+				// Post-transform from skeleton-local to world space (before lighting)
+				if (postTransform) {
+					postTransformVertices(
+						packedPositions, packedNormals,
+						offset, entry.vertexCount, postTransform
+					);
+				}
+
 				// Calculate lighting if config provided and mesh has normals
+				// Lighting needs world-space positions/normals, so runs after post-transform
 				if (packedColors && packedNormals && entry.normals) {
 					calculateLighting(
 						packedPositions, packedNormals, packedColors,
@@ -691,6 +739,7 @@ interface PendingSkinRequest {
 	meshIds: number[];
 	boneMatrices: Float32Array;
 	lightConfig?: WorkerLightConfig;
+	postTransform?: Float32Array;
 }
 
 interface PendingStaticTransformRequest {
@@ -870,7 +919,7 @@ export class TransformWorkerPool {
 	 * @param boneMatrices Bone matrices (16 floats per joint, flattened)
 	 * @param lightConfig Optional lighting configuration to compute vertex colors in worker
 	 */
-	queueSkinning(meshIds: number[], boneMatrices: Float32Array, lightConfig?: WorkerLightConfig): void {
+	queueSkinning(meshIds: number[], boneMatrices: Float32Array, lightConfig?: WorkerLightConfig, postTransform?: Float32Array): void {
 		if (this._disposed) return;
 		if (meshIds.length === 0) return;
 
@@ -895,7 +944,8 @@ export class TransformWorkerPool {
 			this._pendingSkinByWorker.get(workerIndex)!.push({
 				meshIds: workerMeshIds,
 				boneMatrices: new Float32Array(boneMatrices), // Copy to avoid caller reuse issues
-				lightConfig
+				lightConfig,
+				postTransform: postTransform ? new Float32Array(postTransform) : undefined
 			});
 		}
 	}
@@ -980,7 +1030,8 @@ export class TransformWorkerPool {
 					type: "SKIN_BATCH",
 					meshIds: skinReq.meshIds,
 					boneMatrices: skinReq.boneMatrices,
-					lightConfig: skinReq.lightConfig
+					lightConfig: skinReq.lightConfig,
+					postTransform: skinReq.postTransform
 				});
 			}
 			this._pendingSkinByWorker.set(i, []); // Clear pending

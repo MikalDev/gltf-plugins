@@ -545,8 +545,9 @@ export class GltfModel {
 	 * Call this after AnimationController.update() to offload skinning to workers.
 	 * @param boneMatrices Bone matrices from AnimationController.getBoneMatrices()
 	 * @param lightConfig Optional lighting configuration to compute vertex colors in worker
+	 * @param postTransform Optional 4x4 matrix applied to all vertices AFTER skinning (instanceMatrix * RAT)
 	 */
-	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig): void {
+	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig, postTransform?: Float32Array): void {
 		if (!this._workerPool || !this._useWorkers) return;
 
 		// Collect IDs of all skinned meshes registered with pool
@@ -559,8 +560,8 @@ export class GltfModel {
 
 		if (meshIds.length === 0) return;
 
-		// Queue skinning with shared bone matrices and optional lighting
-		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig);
+		// Queue skinning with shared bone matrices, optional lighting, and optional post-transform
+		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig, postTransform);
 
 		// Schedule flush for end of frame
 		SharedWorkerPool.scheduleFlush();
@@ -1225,11 +1226,42 @@ export class GltfModel {
 			}
 		}
 
+		// Compute rootAncestorTransform: combined local transforms of non-joint ancestors
+		// above the skeleton root. Handles Blender exports with Armature nodes carrying
+		// non-identity rotations (e.g. 90° X rotation) and/or scale (e.g. 0.01).
+		let rootAncestorTransform: Float32Array | undefined;
+		const firstRootJoint = joints.find(j => j.parentIndex === -1);
+		if (firstRootJoint) {
+			const ancestors: GltfNodeDef[] = [];
+			let ancestor: GltfNodeDef | null = jointNodes[firstRootJoint.index].getParentNode();
+			while (ancestor) {
+				if (!nodeToJointIndex.has(ancestor)) ancestors.push(ancestor);
+				ancestor = ancestor.getParentNode();
+			}
+			if (ancestors.length > 0) {
+				const result = mat4.create();
+				for (let i = ancestors.length - 1; i >= 0; i--) {
+					mat4.multiply(result, result, this._getLocalMatrix(ancestors[i]));
+				}
+				// Only store if non-identity
+				let isIdentity = true;
+				const identity = mat4.create();
+				for (let k = 0; k < 16; k++) {
+					if (Math.abs(result[k] - identity[k]) > 1e-4) { isIdentity = false; break; }
+				}
+				if (!isIdentity) {
+					rootAncestorTransform = new Float32Array(result);
+					debugLog(`Skin "${name}": rootAncestorTransform detected (${ancestors.length} ancestor(s))`);
+				}
+			}
+		}
+
 		return {
 			name,
 			joints,
 			inverseBindMatrices,
-			nodeToJointIndex
+			nodeToJointIndex,
+			rootAncestorTransform
 		};
 	}
 

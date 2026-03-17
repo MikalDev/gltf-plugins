@@ -533,11 +533,24 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if (this._model.hasWorkerSkinning)
 		{
 			const lightConfig = this._buildLightConfig();
-			// Pre-multiply instance TRS matrix into bone matrices for efficiency
-			// This applies object position/rotation/scale to skinned vertices
 			const boneMatrices = this._animationController.getBoneMatrices();
-			const transformedBoneMatrices = this._applyInstanceMatrixToBones(boneMatrices);
-			this._model.queueSkinning(transformedBoneMatrices, lightConfig);
+
+			// Compute postTransform = instanceMatrix * RAT (or just instanceMatrix if no RAT)
+			// Worker skins in skeleton-local space, then post-transforms all vertices to world space
+			const rat = this._model.skins[0]?.rootAncestorTransform;
+			let postTransform: Float32Array | undefined;
+			if (rat) {
+				postTransform = mat4.create() as unknown as Float32Array;
+				mat4.multiply(
+					postTransform as unknown as Float32Array & number[],
+					this._instanceMatrix as unknown as Float32Array & number[],
+					rat as unknown as Float32Array & number[]
+				);
+			} else {
+				postTransform = this._instanceMatrix;
+			}
+
+			this._model.queueSkinning(boneMatrices, lightConfig, postTransform);
 			return;
 		}
 
@@ -634,15 +647,23 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_updateQuatFromEuler(): void
 	{
-		// Build quaternion from euler angles in the same order as _buildModelViewMatrix
-		// Order: Z (rotationZ) * Y (rotationY) * X (rotationX)
-		// Note: C3's angle property is handled separately in the matrix builder
-		const rx = this._rotationX * DEG_TO_RAD;
-		const ry = this._rotationY * DEG_TO_RAD;
-		const rz = this._rotationZ * DEG_TO_RAD;
+		// Build quaternion matching editor rotation order: Rx * Ry * Rz
+		// (Z applied first to vertex, then Y, then X)
+		// This is intrinsic XYZ / extrinsic ZYX order.
+		// Note: quat.fromEuler uses intrinsic ZYX which gives Rz*Ry*Rx — wrong order.
+		const rx = this._rotationX * DEG_TO_RAD * 0.5;
+		const ry = this._rotationY * DEG_TO_RAD * 0.5;
+		const rz = this._rotationZ * DEG_TO_RAD * 0.5;
 
-		// Create quaternion from euler angles (XYZ order)
-		quat.fromEuler(this._rotationQuat, this._rotationX, this._rotationY, this._rotationZ);
+		const sx = Math.sin(rx), cx = Math.cos(rx);
+		const sy = Math.sin(ry), cy = Math.cos(ry);
+		const sz = Math.sin(rz), cz = Math.cos(rz);
+
+		// Quaternion for Rx * Ry * Rz (intrinsic XYZ)
+		this._rotationQuat[0] = sx * cy * cz + cx * sy * sz; // x
+		this._rotationQuat[1] = cx * sy * cz - sx * cy * sz; // y
+		this._rotationQuat[2] = cx * cy * sz + sx * sy * cz; // z
+		this._rotationQuat[3] = cx * cy * cz - sx * sy * sz; // w
 	}
 
 	/**

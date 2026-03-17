@@ -106,6 +106,7 @@ interface GltfMesh {
 
 interface GltfNode {
 	mesh?: number;
+	skin?: number;
 	children?: number[];
 	translation?: number[];
 	rotation?: number[];
@@ -477,7 +478,9 @@ class EditorGltfModel {
 		if (node.mesh !== undefined) {
 			const mesh = doc.meshes?.[node.mesh];
 			if (mesh) {
-				this._processMesh(doc, buffers, mesh, worldMatrix);
+				// Skinned meshes: skip world transform baking (skinning handles transforms at runtime)
+				const isSkinned = node.skin !== undefined;
+				this._processMesh(doc, buffers, mesh, isSkinned ? mat4Identity() : worldMatrix);
 			}
 		}
 
@@ -1126,8 +1129,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const z = (this._inst as any).GetZ();
 		const angle = this._inst.GetAngle();
 		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
-		// Y rotation offset by +180 degrees to match runtime orientation
-		const rotY = (((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) + 180) * DEG_TO_RAD;
+		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
 		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 

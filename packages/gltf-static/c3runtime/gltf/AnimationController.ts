@@ -120,10 +120,6 @@ export class AnimationController {
 	private readonly _tempMat4A: Float32Array;
 	private readonly _tempMat4B: Float32Array;
 
-	// Scale correction factor for skeleton/animation translations
-	// Detected from IBM scale mismatch (e.g., Blender exports with unapplied scale)
-	private _translationScale: number = 1.0;
-
 	constructor(options: AnimationControllerOptions) {
 		this._skinData = options.skinData;
 		this._animations = options.animations;
@@ -185,17 +181,6 @@ export class AnimationController {
 		this._tempQuatB = new Float32Array(4);
 		this._tempMat4A = new Float32Array(16);
 		this._tempMat4B = new Float32Array(16);
-
-		// Detect IBM scale mismatch (e.g., Blender exports with unapplied scale)
-		// The first column of the first IBM should have unit length for a properly scaled model
-		const ibm = this._skinData.inverseBindMatrices;
-		if (jointCount > 0) {
-			const ibmScale = Math.sqrt(ibm[0] * ibm[0] + ibm[1] * ibm[1] + ibm[2] * ibm[2]);
-			if (ibmScale > 0.001 && Math.abs(ibmScale - 1.0) > 0.1) {
-				this._translationScale = 1.0 / ibmScale;
-				debugLog(`IBM scale detected: ${ibmScale.toFixed(4)}, translation scale: ${this._translationScale.toFixed(4)}`);
-			}
-		}
 
 		// Initialize to bind pose
 		this._resetToBindPose();
@@ -1004,7 +989,6 @@ export class AnimationController {
 	private _computeBoneMatrices(): void {
 		const joints = this._skinData.joints;
 		const ibm = this._skinData.inverseBindMatrices;
-		const ibmScaleFactor = this._translationScale; // Pre-computed in constructor
 
 		for (let i = 0; i < joints.length; i++) {
 			const offset = i * 16;
@@ -1012,32 +996,9 @@ export class AnimationController {
 			const invBind = ibm.subarray(offset, offset + 16);
 			const boneMat = this._boneMatrices.subarray(offset, offset + 16);
 
-			if (ibmScaleFactor !== 1.0) {
-				// Normalize IBM scale before multiplication
-				// Only scale the rotation/scale part (columns 0-2 = indices 0-11)
-				// Keep translation (column 3 = indices 12-14) at original scale
-				// so it properly cancels with world matrix translation
-				const normalizedIbm = this._tempMat4B;
-				for (let j = 0; j < 12; j++) {
-					normalizedIbm[j] = invBind[j] * ibmScaleFactor;
-				}
-				// Copy translation unchanged
-				normalizedIbm[12] = invBind[12];
-				normalizedIbm[13] = invBind[13];
-				normalizedIbm[14] = invBind[14];
-				normalizedIbm[15] = invBind[15]; // Keep w=1
-
-				mat4.multiply(boneMat as mat4, worldMat as mat4, normalizedIbm as mat4);
-
-				// Scale the resulting bone matrix translation to match vertex scale
-				// At bind pose this is ~0 so no effect; during animation it scales movement
-				boneMat[12] *= ibmScaleFactor;
-				boneMat[13] *= ibmScaleFactor;
-				boneMat[14] *= ibmScaleFactor;
-			} else {
-				// boneMatrix = worldMatrix * inverseBindMatrix
-				mat4.multiply(boneMat as mat4, worldMat as mat4, invBind as mat4);
-			}
+			// boneMatrix = worldMatrix * inverseBindMatrix
+			// Any ancestor scale/rotation mismatch is handled by the worker post-transform
+			mat4.multiply(boneMat as mat4, worldMat as mat4, invBind as mat4);
 		}
 	}
 
