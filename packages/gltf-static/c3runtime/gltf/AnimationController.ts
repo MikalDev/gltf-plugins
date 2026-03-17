@@ -963,15 +963,24 @@ export class AnimationController {
 			const parentMat = this._jointWorldMatrices.subarray(parentOffset, parentOffset + 16);
 			mat4.multiply(worldMat as mat4, parentMat as mat4, this._tempMat4A as mat4);
 		} else {
-			// Root joint: world matrix = local matrix
-			// Build local matrix from TRS
+			// Root joint: world matrix = RAT * local matrix
+			// RAT includes non-joint ancestor transforms (e.g. Blender Armature rotation + scale)
 			mat4.fromRotationTranslationScale(
 				this._tempMat4A as mat4,
 				transform.rotation as quat,
 				transform.translation as vec3,
 				transform.scale as vec3
 			);
-			worldMat.set(this._tempMat4A);
+
+			if (this._skinData.rootAncestorTransform) {
+				mat4.multiply(
+					worldMat as mat4,
+					this._skinData.rootAncestorTransform as unknown as mat4,
+					this._tempMat4A as mat4
+				);
+			} else {
+				worldMat.set(this._tempMat4A);
+			}
 		}
 
 		// Mark as computed

@@ -545,9 +545,8 @@ export class GltfModel {
 	 * Call this after AnimationController.update() to offload skinning to workers.
 	 * @param boneMatrices Bone matrices from AnimationController.getBoneMatrices()
 	 * @param lightConfig Optional lighting configuration to compute vertex colors in worker
-	 * @param postTransform Optional 4x4 matrix applied to all vertices AFTER skinning (instanceMatrix * RAT)
 	 */
-	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig, postTransform?: Float32Array): void {
+	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig): void {
 		if (!this._workerPool || !this._useWorkers) return;
 
 		// Collect IDs of all skinned meshes registered with pool
@@ -560,8 +559,8 @@ export class GltfModel {
 
 		if (meshIds.length === 0) return;
 
-		// Queue skinning with shared bone matrices, optional lighting, and optional post-transform
-		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig, postTransform);
+		// Queue skinning with shared bone matrices and optional lighting
+		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig);
 
 		// Schedule flush for end of frame
 		SharedWorkerPool.scheduleFlush();

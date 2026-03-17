@@ -5,7 +5,7 @@
 	"type": "plugin",
 	"name": "Mesh",
 	"id": "GltfStatic",
-	"version": "1.19.0.0",
+	"version": "1.20.0.0",
 	"author": "Mikal",
 	"website": "https://github.com/MikalDev/gltf-static",
 	"documentation": "https://github.com/MikalDev/gltf-static",

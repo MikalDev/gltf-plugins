@@ -533,24 +533,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if (this._model.hasWorkerSkinning)
 		{
 			const lightConfig = this._buildLightConfig();
+			// Pre-multiply instance TRS matrix into bone matrices for efficiency
+			// This applies object position/rotation/scale to skinned vertices
 			const boneMatrices = this._animationController.getBoneMatrices();
-
-			// Compute postTransform = instanceMatrix * RAT (or just instanceMatrix if no RAT)
-			// Worker skins in skeleton-local space, then post-transforms all vertices to world space
-			const rat = this._model.skins[0]?.rootAncestorTransform;
-			let postTransform: Float32Array | undefined;
-			if (rat) {
-				postTransform = mat4.create() as unknown as Float32Array;
-				mat4.multiply(
-					postTransform as unknown as Float32Array & number[],
-					this._instanceMatrix as unknown as Float32Array & number[],
-					rat as unknown as Float32Array & number[]
-				);
-			} else {
-				postTransform = this._instanceMatrix;
-			}
-
-			this._model.queueSkinning(boneMatrices, lightConfig, postTransform);
+			const transformedBoneMatrices = this._applyInstanceMatrixToBones(boneMatrices);
+			this._model.queueSkinning(transformedBoneMatrices, lightConfig);
 			return;
 		}
 
