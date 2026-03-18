@@ -548,6 +548,21 @@
 						"display-text": "{my} refresh and bake lighting",
 						"description": "Recalculate lighting from current light sources and bake into vertex colors."
 					},
+					"set-shadow-ray-count": {
+						"list-name": "Set shadow ray count",
+						"display-text": "{my} set shadow rays to [b]{0}[/b]",
+						"description": "Set shadow occlusion ray mode. Simple uses 1 ray (binary on/off). Smooth uses 5 rays (center + top/bottom/left/right) for gradual penumbra.",
+						"params": {
+							"mode": {
+								"name": "Mode",
+								"desc": "Shadow ray mode.",
+								"items": {
+									"simple": "Simple (1 ray)",
+									"smooth": "Smooth (5 rays)"
+								}
+							}
+						}
+					},
 					"set-builtin-enabled": {
 						"list-name": "Set built-in enabled",
 						"display-text": "{my} set built-in model [b]{0}[/b]",
@@ -730,6 +745,10 @@
 					"quat-w": {
 						"description": "Get the quaternion W component.",
 						"translated-name": "QuatW"
+					},
+					"shadow-ray-count": {
+						"description": "Get the number of shadow occlusion rays (1 or 5).",
+						"translated-name": "ShadowRayCount"
 					},
 					"builtin-model-type": {
 						"description": "Get the current built-in model type name (cube, sphere, capsule, cylinder, cone, ramp, plane), or empty string if not using a built-in.",

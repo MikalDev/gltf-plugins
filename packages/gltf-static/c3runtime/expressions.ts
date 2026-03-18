@@ -212,6 +212,11 @@ C3.Plugins.GltfStatic.Exps =
 		return this._getQuatW();
 	},
 
+	ShadowRayCount(this: SDKInstanceClass): number
+	{
+		return this._shadowRayCount;
+	},
+
 	// Physics / Bounding Box expressions
 	BBoxWidth(this: SDKInstanceClass): number
 	{

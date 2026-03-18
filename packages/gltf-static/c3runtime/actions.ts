@@ -162,6 +162,11 @@ C3.Plugins.GltfStatic.Acts =
 		this._setBuiltinModel(typeIndex);
 	},
 
+	SetShadowRayCount(this: SDKInstanceClass, mode: number): void
+	{
+		this._shadowRayCount = mode === 0 ? 1 : 5;
+	},
+
 	// Texture animation actions
 	SetTextureSource(this: SDKInstanceClass, objectClass: any): void
 	{

@@ -267,6 +267,21 @@
 				]
 			},
 			{
+				"id": "set-shadow-ray-count",
+				"scriptName": "SetShadowRayCount",
+				"highlight": false,
+				"params": [
+					{
+						"id": "mode",
+						"type": "combo",
+						"items": [
+							"simple",
+							"smooth"
+						]
+					}
+				]
+			},
+			{
 				"id": "set-builtin-model",
 				"scriptName": "SetBuiltinModel",
 				"highlight": false,
@@ -377,6 +392,11 @@
 			{
 				"id": "quat-w",
 				"expressionName": "QuatW",
+				"returnType": "number"
+			},
+			{
+				"id": "shadow-ray-count",
+				"expressionName": "ShadowRayCount",
 				"returnType": "number"
 			},
 			{

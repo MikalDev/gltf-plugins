@@ -68,8 +68,10 @@ const tempVec = vec3.create();
 // Degrees to radians conversion factor
 const DEG_TO_RAD = Math.PI / 180;
 
-/** Intensity multiplier applied to a spotlight when a shadow raycast detects occlusion. */
+/** Intensity multiplier applied to a spotlight when all shadow rays detect occlusion. */
 const SHADOW_OCCLUSION_FACTOR = 0.2;
+/** Number of occlusion rays per light: center, top, bottom, left, right. */
+const OCCLUSION_RAY_COUNT = 5;
 const RAD_TO_DEG = 180 / Math.PI;
 
 C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInstanceBase
@@ -120,9 +122,12 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Physics integration
 	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
 
-	// Per-light occlusion cache: stores intensity factor, pre-built raycast tag, and result key.
-	// Built lazily on first encounter; tag/resultKey never change so no per-tick string allocations.
-	_lightOcclusionCache: Map<number, { factor: number; tag: string; resultKey: string }> = new Map();
+	// Per-light occlusion cache: stores intensity factor and per-ray tags/results.
+	// 5 rays per light: center, top, bottom, left, right.
+	_lightOcclusionCache: Map<number, { factor: number; rays: Array<{ tag: string; resultKey: string; hit: boolean }> }> = new Map();
+
+	// Shadow ray count: 1 (center only, binary) or 5 (center + top/bottom/left/right, smooth penumbra)
+	_shadowRayCount: number = 1;
 
 	// Addon image texture applied to built-in models (one-shot flag to prevent double UV remap)
 	_addonTextureApplied: boolean = false;
@@ -379,8 +384,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	/**
 	 * Fire raycasts to each shadow-enabled spotlight and read results from the previous tick.
 	 * Uses the Rapier3DPhysics behavior attached to this instance.
-	 * Tag format: "gltfspot_<lightId>" — behavior auto-appends "_<uid>" on read.
-	 * Updates _lightOcclusionCache factor: SHADOW_OCCLUSION_FACTOR when occluded, 1.0 when clear.
+	 * Supports 1 ray (center only, binary) or 5 rays (center + top/bottom/left/right, smooth penumbra).
+	 * Tag format: "gltfspot_<lightId>_<rayIndex>" — behavior auto-appends "_<uid>" on read.
+	 * Factor is linearly interpolated between 1.0 (no hits) and SHADOW_OCCLUSION_FACTOR (all hit).
 	 */
 	_updateLightOcclusion(): void
 	{
@@ -391,6 +397,21 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		}
 		const physBeh = this._cachedPhysBeh as any;
 		if (!physBeh) return;
+
+		const rayCount = this._shadowRayCount;
+		const selfAny = this as any;
+		const halfWidth = (selfAny.width ?? 0) * 0.5;
+		const halfDepth = (selfAny.depth ?? 0) * 0.5;
+
+		// Ray offsets: [dx, dy, dz] from object center
+		// center, top (+Z), bottom (-Z), left (-X), right (+X)
+		const offsets: [number, number, number][] = [
+			[0, 0, 0],
+			[0, 0, halfDepth],
+			[0, 0, -halfDepth],
+			[-halfWidth, 0, 0],
+			[halfWidth, 0, 0],
+		];
 
 		const spotLights = Lighting.getAllSpotLights();
 		for (const spot of spotLights)
@@ -406,24 +427,44 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				if (dx * dx + dy * dy + dz * dz > spot.range * spot.range) continue;
 			}
 
-			// Build tag and result-key lazily — both are invariant for this instance+light pair.
+			// Build tags and result-keys lazily. Always allocate OCCLUSION_RAY_COUNT slots
+			// so switching between 1 and 5 doesn't require cache rebuild.
 			let entry = this._lightOcclusionCache.get(spot.id);
 			if (!entry)
 			{
-				const tag = `gltfspot_${spot.id}`;
-				entry = { factor: 1.0, tag, resultKey: `${tag}_${this.uid}` };
+				const rays = [];
+				for (let i = 0; i < OCCLUSION_RAY_COUNT; i++)
+				{
+					const tag = `gltfspot_${spot.id}_${i}`;
+					rays.push({ tag, resultKey: `${tag}_${this.uid}`, hit: false });
+				}
+				entry = { factor: 1.0, rays };
 				this._lightOcclusionCache.set(spot.id, entry);
 			}
 
-			// Read result fired on the previous tick.
-			const result = physBeh.raycastResults?.get(entry.resultKey);
-			if (result !== undefined)
+			// Read results from previous tick and fire new rays (only up to rayCount).
+			let hitCount = 0;
+			for (let i = 0; i < rayCount; i++)
 			{
-				entry.factor = result.hasHit ? SHADOW_OCCLUSION_FACTOR : 1.0;
+				const ray = entry.rays[i];
+				const result = physBeh.raycastResults?.get(ray.resultKey);
+				if (result !== undefined)
+				{
+					ray.hit = result.hasHit;
+				}
+				if (ray.hit) hitCount++;
+
+				const off = offsets[i];
+				physBeh._RaycastFromSelf(
+					ray.tag,
+					spot.position[0], spot.position[1], spot.position[2],
+					"0x8000",
+					off[0], off[1], off[2]
+				);
 			}
 
-			// Fire raycast for next tick.
-			physBeh._RaycastFromSelf(entry.tag, spot.position[0], spot.position[1], spot.position[2]);
+			// Linear blend: 0 hits → 1.0, all hits → SHADOW_OCCLUSION_FACTOR
+			entry.factor = 1.0 - (hitCount / rayCount) * (1.0 - SHADOW_OCCLUSION_FACTOR);
 		}
 	}
 
@@ -2362,10 +2403,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				let status: string;
 				if (!entry)
 					status = "(no raycast fired yet)";
-				else if (entry.factor < 1.0)
-					status = `OCCLUDED (${entry.factor.toFixed(2)}x)`;
 				else
-					status = "clear (1.0x)";
+				{
+					const rayCount = this._shadowRayCount;
+					const hitCount = entry.rays.slice(0, rayCount).filter(r => r.hit).length;
+					if (hitCount === 0)
+						status = `clear (1.0x) [${rayCount} ray${rayCount > 1 ? "s" : ""}]`;
+					else
+						status = `OCCLUDED ${hitCount}/${rayCount} rays (${entry.factor.toFixed(2)}x)`;
+				}
 				occlusionProps.push({ name: `Light ${light.id} [${light.type ?? "spot"}]`, value: status });
 			}
 			props.push({ title: "Shadow Occlusion", properties: occlusionProps });
