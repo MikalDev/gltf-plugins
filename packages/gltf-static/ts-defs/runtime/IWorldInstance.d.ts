@@ -7,10 +7,10 @@ interface WorldInstanceEventMap<InstType = IWorldInstance> extends InstanceEvent
 interface SceneGraphHierarchyOpts {
 	transformX: boolean;
 	transformY: boolean;
+	transformZ: boolean;
 	transformWidth: boolean;
 	transformHeight: boolean;
 	transformAngle: boolean;
-	transformZElevation: boolean;
 	transformOpacity: boolean;
 	transformVisibility: boolean;
 	destroyWithParent: boolean;
@@ -24,7 +24,7 @@ interface SetMeshPointOpts {
 	mode?: "absolute" | "relative";
 	x: number;
 	y: number;
-	zElevation?: number;
+	z?: number;
 	u?: number;
 	v?: number;
 }
@@ -33,7 +33,7 @@ interface SetMeshPointOpts {
 interface GetMeshPointOpts {
 	x: number;
 	y: number;
-	zElevation: number;
+	z: number;
 	u: number;
 	v: number;
 }
@@ -54,8 +54,22 @@ declare class IWorldInstance extends IInstance
 	getPosition(): Vec2Arr;
 	offsetPosition(dx: number, dy: number): void;
 
+	z: number;
+	totalZ: number;
+	setPosition3d(x: number, y: number, z: number): void;
+	getPosition3d(): Vec3Arr;
+	offsetPosition3d(dx: number, dy: number, dz: number): void;
+
+	// zElevation and totalZElevation properties preserved for backwards compatibility only
+	/**
+	 * @deprecated Use 'z' property instead
+	 */
 	zElevation: number;
-	readonly totalZ: number;
+
+	/**
+	 * @deprecated Use 'totalZ' property instead
+	 */
+	readonly totalZElevation: number;
 
 	originX: number;
 	originY: number;
@@ -64,13 +78,17 @@ declare class IWorldInstance extends IInstance
 
 	width: number;
 	height: number;
+	depth: number;
 	setSize(w: number, h: number): void;
 	getSize(): Vec2Arr;
-
+	setSize3d(w: number, h: number, d: number): void;
+	getSize3d(): Vec3Arr;
+	
 	angle: number;
 	angleDegrees: number;
 
 	getBoundingBox(ignoreMesh?: boolean): DOMRect;
+	getBoundingBox3d(ignoreMesh?: boolean): IAABB3D;
 	getBoundingQuad(ignoreMesh?: boolean): DOMQuad;
 	isOnScreen(): boolean;
 
@@ -78,6 +96,8 @@ declare class IWorldInstance extends IInstance
 	opacity: number;
 	colorRgb: Vec3Arr;
 	blendMode: BlendModeParameter;
+	sampling: SamplingModeOrAutoType;
+    readonly activeSampling: SamplingModeType;
 	effects: IEffectInstance[];
 
 	moveToTop(): void;

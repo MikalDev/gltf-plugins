@@ -61,6 +61,7 @@ const PROP_ROTATION_Z = 4;
 const PROP_SCALE = 5;
 const PROP_USE_BUILTIN = 6;
 const PROP_BUILTIN_TYPE = 7;
+const PROP_BBOX_SCALE = 8;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempVec = vec3.create();
@@ -173,6 +174,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// Built-in model properties
 			this._useBuiltinModel = props[PROP_USE_BUILTIN] as boolean;
 			this._builtinModelType = props[PROP_BUILTIN_TYPE] as number;
+			// Bounding box scale
+			this._bboxScale = props[PROP_BBOX_SCALE] as number;
 
 			debugLog("Properties loaded:", {
 				modelUrl: this._modelUrl,
@@ -2656,7 +2659,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			"texAnimFrame": this._texAnimFrame,
 			"texAnimSpeedScale": this._texAnimSpeedScale,
 			"texAnimName": this._texAnimName,
-			"texAnimForward": this._texAnimForward
+			"texAnimForward": this._texAnimForward,
+			"bboxScale": this._bboxScale
 		};
 	}
 
@@ -2691,6 +2695,12 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._texAnimSpeedScale = (data["texAnimSpeedScale"] as number) ?? 1;
 			this._texAnimName = (data["texAnimName"] as string) ?? "Default";
 			this._texAnimForward = (data["texAnimForward"] as boolean) ?? true;
+		}
+
+		// Restore bounding box scale (backward compatible)
+		if ("bboxScale" in data)
+		{
+			this._bboxScale = (data["bboxScale"] as number) ?? 1;
 		}
 
 		// Reload model after restoring state

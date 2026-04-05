@@ -5,4 +5,6 @@ declare class ITexture
 {
 	readonly width: number;
 	readonly height: number;
+
+	readonly defaultSampling: SamplingModeType;
 }

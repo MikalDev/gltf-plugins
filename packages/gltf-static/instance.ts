@@ -18,6 +18,7 @@ const PROP_ROTATION_Z = "rotation-z";
 const PROP_SCALE = "scale";
 const PROP_USE_BUILTIN = "use-built-in-model";
 const PROP_BUILTIN_TYPE = "built-in-model-type";
+const PROP_BBOX_SCALE = "bbox-scale";
 
 // Degrees to radians conversion
 const DEG_TO_RAD = Math.PI / 180;
@@ -1078,10 +1079,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 
 		const { min, max } = this._model.computeBoundingBox();
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
+		const bboxScale = (this._inst.GetPropertyValue(PROP_BBOX_SCALE) as number) ?? 1;
 
-		const w = (max[0] - min[0]) * scale;
-		const h = (max[1] - min[1]) * scale;
-		const d = (max[2] - min[2]) * scale;
+		const w = (max[0] - min[0]) * scale * bboxScale;
+		const h = (max[1] - min[1]) * scale * bboxScale;
+		const d = (max[2] - min[2]) * scale * bboxScale;
 
 		this._inst.SetSize(w, h);
 		// SetDepth not yet in SDK type defs (available in C3 r472+)
@@ -1514,6 +1516,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 
 			if (id === PROP_SCALE)
 				this._updateEditorBounds();
+		}
+
+		if (id === PROP_BBOX_SCALE)
+		{
+			this._updateEditorBounds();
 		}
 	}
 

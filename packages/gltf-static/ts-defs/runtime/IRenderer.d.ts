@@ -3,11 +3,11 @@
  * @see {@link https://www.construct.net/en/make-games/manuals/construct-3/scripting/scripting-reference/graphics-interfaces/irenderer-interface | IRenderer documentation } */
 
 type TextureWrapMode = "clamp-to-edge" | "repeat" | "mirror-repeat";
-type TextureSamplingMode = "nearest" | "bilinear" | "trilinear";
 interface TextureCreateOptions {
 	wrapX?: TextureWrapMode;
 	wrapY?: TextureWrapMode;
-	sampling?: TextureSamplingMode;
+	defaultSampling?: SamplingModeType;
+	sampling?: SamplingModeType;
 	mipMap?: boolean
 }
 interface TextureUpdateOptions {
@@ -58,9 +58,9 @@ declare class IRenderer
 	quad3D2(tlx: number, tly: number, tlz: number, trx: number, try_: number, trz: number, brx: number, bry: number, brz: number, blx: number, bly: number, blz: number, texQuad: DOMQuad): void;
 	quad3D3(tlx: number, tly: number, tlz: number, trx: number, try_: number, trz: number, brx: number, bry: number, brz: number, blx: number, bly: number, blz: number, texQuad: DOMQuad, colorArr: Float32Array): void;
 
+	drawMesh(posArr: Float32Array, uvArr: Float32Array, indexArr: Uint16Array, colorArr?: Float32Array): void;
 	createMeshData(vertexCount: number, indexCount: number, opts?: CreateMeshDataOptions): IMeshData;
 	drawMeshData(meshData: IMeshData, indexOffset?: number, indexCount?: number): void;
-	drawMesh(posArr: Float32Array, uvArr: Float32Array, indexArr: Uint16Array, colorArr?: Float32Array): void;
 
 	convexPoly(pointsArray: number[]): void;
 	line(x1: number, y1: number, x2: number, y2: number): void;
@@ -75,7 +75,7 @@ declare class IRenderer
 	pushLineCap(lineCap: RendererLineCapMode): void;
 	popLineCap(): void;
 
-	setTexture(texture: ITexture): void;
+	setTexture(texture: ITexture, sampling?: SamplingModeOrAutoType): void;
 	createStaticTexture(data: TextureStaticDataType, opts?: TextureCreateOptions): Promise<ITexture>;
 	createDynamicTexture(width: number, height: number, opts?: TextureCreateOptions): ITexture;
 	updateTexture(data: TextureUpdateDataType, texture: ITexture, opts?: TextureUpdateOptions): void;

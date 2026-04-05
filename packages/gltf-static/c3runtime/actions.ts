@@ -162,6 +162,11 @@ C3.Plugins.GltfStatic.Acts =
 		this._setBuiltinModel(typeIndex);
 	},
 
+	SetBBoxScale(this: SDKInstanceClass, scale: number): void
+	{
+		this._setBBoxScale(scale);
+	},
+
 	SetShadowRayCount(this: SDKInstanceClass, mode: number): void
 	{
 		this._shadowRayCount = mode === 0 ? 1 : 5;

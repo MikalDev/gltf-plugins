@@ -13,8 +13,8 @@ declare class IMeshData
 	readonly debugLabel: string;
 
 	markDataChanged(bufferType: string, start: number, end: number): void;
-	markAllVertexDataChanged(start?: number, end?: number);
-	markIndexDataChanged(start?: number, end?: number);
+	markAllVertexDataChanged(start?: number, end?: number): void;
+	markIndexDataChanged(start?: number, end?: number): void;
 	fillColor(r: number, g: number, b: number, a: number): void;
 
 	release(): void;

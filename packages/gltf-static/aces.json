@@ -894,7 +894,19 @@
 	},
 	"physics": {
 		"conditions": [],
-		"actions": [],
+		"actions": [
+			{
+				"id": "set-bbox-scale",
+				"scriptName": "SetBBoxScale",
+				"highlight": false,
+				"params": [
+					{
+						"id": "scale",
+						"type": "number"
+					}
+				]
+			}
+		],
 		"expressions": [
 			{
 				"id": "bbox-width",

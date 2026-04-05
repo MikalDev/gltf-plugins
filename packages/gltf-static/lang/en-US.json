@@ -59,6 +59,10 @@
 							"ramp": "Ramp",
 							"plane": "Plane"
 						}
+					},
+					"bbox-scale": {
+						"name": "BBox Scale",
+						"desc": "Scale factor for the bounding box (1 = actual model size)."
 					}
 				},
 				"aceCategories": {
@@ -595,6 +599,17 @@
 									"ramp": "Ramp",
 									"plane": "Plane"
 								}
+							}
+						}
+					},
+					"set-bbox-scale": {
+						"list-name": "Set bounding box scale",
+						"display-text": "{my} set bounding box scale to [b]{0}[/b]",
+						"description": "Set the bounding box scale factor. Scales the bounding box used for physics and frustum culling.",
+						"params": {
+							"scale": {
+								"name": "Scale",
+								"desc": "Scale factor (1 = actual model bounding box size)."
 							}
 						}
 					},

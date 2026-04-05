@@ -7,7 +7,7 @@ declare namespace SDK {
 		_inst: SDK.IWorldInstance;
 
 		Draw(iRenderer: SDK.Gfx.IWebGLRenderer, iDrawParams: SDK.Gfx.IDrawParams): void;
-		OnPlacedInLayout(): void;
+		OnPlacedInLayout(iLayoutView?: SDK.UI.ILayoutView): void;
 
 		GetTexture(animationFrame: SDK.IAnimationFrame): SDK.Gfx.IWebGLTexture | null;
 		GetTexRect(): SDK.Rect;
