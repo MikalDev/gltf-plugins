@@ -65,6 +65,18 @@ export interface JointTransform {
 }
 
 // ============================================================================
+// Morph Target Data Types
+// ============================================================================
+
+/** Per-target morph delta data (position and optionally normal deltas) */
+export interface MorphTargetData {
+	/** Position deltas (vec3 per vertex, same length as mesh positions) */
+	positionDeltas: Float32Array;
+	/** Normal deltas (vec3 per vertex, optional) */
+	normalDeltas: Float32Array | null;
+}
+
+// ============================================================================
 // Animation Data Types
 // ============================================================================
 
@@ -94,6 +106,8 @@ export interface AnimationChannelData {
 	targetPath: AnimationTargetPath;
 	/** Index into the animation's samplers array */
 	samplerIndex: number;
+	/** Number of morph targets (only for "weights" channels) */
+	morphTargetCount?: number;
 }
 
 /** Complete animation clip - shared across instances */

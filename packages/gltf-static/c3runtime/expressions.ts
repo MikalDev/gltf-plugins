@@ -278,5 +278,16 @@ C3.Plugins.GltfStatic.Exps =
 	TextureAnimName(this: SDKInstanceClass): string
 	{
 		return this._getTextureAnimName();
+	},
+
+	// Morph target expressions
+	MorphTargetCount(this: SDKInstanceClass): number
+	{
+		return this._getMorphTargetCount();
+	},
+
+	MorphWeight(this: SDKInstanceClass, index: number): number
+	{
+		return this._getMorphWeight(index);
 	}
 };

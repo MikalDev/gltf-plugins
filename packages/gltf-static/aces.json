@@ -892,6 +892,50 @@
 			}
 		]
 	},
+	"morph": {
+		"conditions": [
+			{
+				"id": "has-morph-targets",
+				"scriptName": "HasMorphTargets",
+				"highlight": false
+			}
+		],
+		"actions": [
+			{
+				"id": "set-morph-weight",
+				"scriptName": "SetMorphWeight",
+				"highlight": false,
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					},
+					{
+						"id": "weight",
+						"type": "number"
+					}
+				]
+			}
+		],
+		"expressions": [
+			{
+				"id": "morph-target-count",
+				"expressionName": "MorphTargetCount",
+				"returnType": "number"
+			},
+			{
+				"id": "morph-weight",
+				"expressionName": "MorphWeight",
+				"returnType": "number",
+				"params": [
+					{
+						"id": "index",
+						"type": "number"
+					}
+				]
+			}
+		]
+	},
 	"physics": {
 		"conditions": [],
 		"actions": [

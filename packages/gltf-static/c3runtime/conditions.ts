@@ -91,5 +91,11 @@ C3.Plugins.GltfStatic.Cnds =
 	OnTextureFrameChanged(this: SDKInstanceClass): boolean
 	{
 		return true; // Trigger condition
+	},
+
+	// Morph target conditions
+	HasMorphTargets(this: SDKInstanceClass): boolean
+	{
+		return this._hasMorphTargets();
 	}
 };

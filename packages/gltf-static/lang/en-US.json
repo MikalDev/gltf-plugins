@@ -70,28 +70,32 @@
 					"animation": "Animation",
 					"texture-animation": "Texture Animation",
 					"bones": "Bones",
-					"physics": "Physics"
+					"physics": "Physics",
+						"morph": "Morph Targets"
 				},
 				"conditionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
 					"texture-animation": "Texture Animation",
 					"bones": "Bones",
-					"physics": "Physics"
+					"physics": "Physics",
+					"morph": "Morph Targets"
 				},
 				"actionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
 					"texture-animation": "Texture Animation",
 					"bones": "Bones",
-					"physics": "Physics"
+					"physics": "Physics",
+					"morph": "Morph Targets"
 				},
 				"expressionsCategories": {
 					"gltf": "glTF",
 					"animation": "Animation",
 					"texture-animation": "Texture Animation",
 					"bones": "Bones",
-					"physics": "Physics"
+					"physics": "Physics",
+					"morph": "Morph Targets"
 				},
 				"conditions": {
 					"is-loaded": {
@@ -202,6 +206,11 @@
 						"list-name": "On texture frame changed",
 						"display-text": "On {my} texture frame changed",
 						"description": "Triggered when the texture animation advances to a new frame."
+					},
+					"has-morph-targets": {
+						"list-name": "Has morph targets",
+						"display-text": "{my} has morph targets",
+						"description": "True if the model has morph targets (blend shapes)."
 					}
 				},
 				"actions": {
@@ -684,6 +693,21 @@
 								"desc": "Speed multiplier (1 = normal speed, 0.5 = half speed, 2 = double speed)."
 							}
 						}
+					},
+					"set-morph-weight": {
+						"list-name": "Set morph weight",
+						"display-text": "{my} set morph target [b]{0}[/b] weight to [b]{1}[/b]",
+						"description": "Set a morph target weight by index.",
+						"params": {
+							"index": {
+								"name": "Index",
+								"desc": "The morph target index (0-based)."
+							},
+							"weight": {
+								"name": "Weight",
+								"desc": "The weight value (typically 0 to 1)."
+							}
+						}
 					}
 				},
 				"expressions": {
@@ -948,6 +972,20 @@
 					"texture-anim-name": {
 						"description": "Get the name of the current texture animation.",
 						"translated-name": "TextureAnimName"
+					},
+					"morph-target-count": {
+						"description": "Get the number of morph targets in the model.",
+						"translated-name": "MorphTargetCount"
+					},
+					"morph-weight": {
+						"description": "Get the morph target weight at the given index.",
+						"translated-name": "MorphWeight",
+						"params": {
+							"index": {
+								"name": "Index",
+								"desc": "The morph target index (0-based)."
+							}
+						}
 					}
 				}
 			}

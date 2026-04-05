@@ -103,6 +103,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Animation controller (created when model has skinning data)
 	_animationController: AnimationControllerType | null = null;
 	_skinnedMeshIndices: number[] = [];  // Maps animation controller mesh index to model mesh index
+	_morphSkinBuffers: Map<number, { positions: Float32Array; normals: Float32Array }> = new Map();  // Reusable buffers for morph+skin
 	_pendingAnimation: string | null = null;  // Animation name requested before controller was ready
 	_pendingAnimationIndex: number | null = null; // Animation index requested before controller was ready
 
@@ -214,6 +215,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Clean up animation controller
 		this._animationController = null;
 		this._texSourceInst = null;
+		this._morphSkinBuffers.clear();
 
 		// Clean up glTF model resources
 		if (this._model)
@@ -357,6 +359,24 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._animationController.update(this._accumulatedDt);
 		}
 
+		// Apply animated morph weights to meshes
+		if (this._animationController?.morphWeightsDirty && this._model)
+		{
+			const morphStates = this._animationController.getMorphWeightStates();
+			if (morphStates.length > 0)
+			{
+				const weights = morphStates[0].weights;
+				for (const mesh of this._model.meshes)
+				{
+					if (mesh.hasMorphTargets)
+					{
+						mesh.setMorphWeights(weights);
+					}
+				}
+			}
+			this._animationController.clearMorphWeightsDirty();
+		}
+
 		// Advance texture (sprite-frame) animation using accumulated dt (frame-skip aware)
 		if (this._texAnimPlaying && this._useBuiltinModel) {
 			this._tickTextureAnimation(this._accumulatedDt);
@@ -364,16 +384,28 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		this._accumulatedDt = 0;
 
-		// Apply joint/skinning transforms every tick — ensures instance TRS (scale, rotation)
-		// is applied to skinned meshes even before any animation has started
 		if (this._animationController && this._model)
 		{
-			this._model.updateJointNodes(this._animationController);
-			this._model.updateStaticMeshTransforms(this._instanceMatrix, this._getCameraPosition());
-			this._updateSkinnedMeshes();
+			// Update bone hierarchy if we have skinned meshes
+			if (this._skinnedMeshIndices.length > 0)
+			{
+				this._model.updateJointNodes(this._animationController);
+				this._model.updateStaticMeshTransforms(this._instanceMatrix, this._getCameraPosition());
+				this._updateSkinnedMeshes();
+			}
+
+			// Update non-skinned morphed meshes (main thread — workers have stale positions)
+			for (const mesh of this._model.meshes)
+			{
+				if (!mesh.isSkinned && mesh.hasMorphTargets)
+				{
+					mesh.applyMorphedTransform(this._instanceMatrix);
+					mesh.applyLighting(null, false, this._getCameraPosition());
+				}
+			}
 		}
 
-		// Always transform + light all registered static meshes unless baked
+		// Transform + light static meshes via workers (excludes skinned and morphed meshes)
 		if (!this._isLightingBaked())
 		{
 			const lightConfig = this._buildLightConfig();
@@ -568,13 +600,33 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	/**
 	 * Push skinned positions from animation controller to mesh GPU buffers.
 	 * Uses worker-based skinning when available, falls back to main thread.
+	 * Meshes with active morph targets always use main-thread skinning
+	 * because morph deltas must be applied before skinning (in bind space)
+	 * and workers only have the original (non-morphed) positions.
 	 */
 	_updateSkinnedMeshes(): void
 	{
 		if (!this._animationController || !this._model) return;
 
-		// Use worker skinning if available (handles both positions and normals)
-		if (this._model.hasWorkerSkinning)
+		const meshes = this._model.meshes;
+		if (!meshes) return;
+
+		// Check if any skinned mesh has active morph targets
+		let hasActiveMorphTargets = false;
+		for (let i = 0; i < this._animationController.getMeshCount(); i++)
+		{
+			const mesh = meshes[this._skinnedMeshIndices[i]];
+			if (mesh?.hasMorphTargets)
+			{
+				hasActiveMorphTargets = true;
+				break;
+			}
+		}
+
+		// Use worker skinning if available AND no morph targets are active.
+		// Workers hold a copy of original positions and can't incorporate morph deltas,
+		// so we fall back to main-thread skinning when morph targets are present.
+		if (this._model.hasWorkerSkinning && !hasActiveMorphTargets)
 		{
 			const lightConfig = this._buildLightConfig();
 			// Pre-multiply instance TRS matrix into bone matrices for efficiency
@@ -585,9 +637,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			return;
 		}
 
-		// Main thread skinning
-		const meshes = this._model.meshes;
-		if (!meshes) return;
+		// Main thread skinning (also used as fallback when morph targets are active)
+		const boneMatrices = this._animationController.getBoneMatrices();
 
 		for (let i = 0; i < this._animationController.getMeshCount(); i++)
 		{
@@ -595,17 +646,159 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			const mesh = meshes[meshIndex];
 			if (!mesh) continue;
 
-			// Update positions
-			mesh.updateSkinnedPositions(this._animationController.getSkinnedPositions(i));
-
-			// Update normals (invalidates lighting cache)
-			const normals = this._animationController.getSkinnedNormals(i);
-			if (normals)
+			if (mesh.hasMorphTargets)
 			{
-				mesh.updateSkinnedNormals(normals);
-				mesh.invalidateLighting(); // Force recalc since normals changed
+				// Morph + skin on main thread: apply morph deltas first, then skin
+				const morphedPositions = mesh.getMorphedPositions();
+				const morphedNormals = mesh.getMorphedNormals();
+				if (morphedPositions)
+				{
+					const skinned = this._skinPositions(morphedPositions, mesh, boneMatrices);
+					mesh.updateSkinnedPositions(skinned);
+				}
+				if (morphedNormals)
+				{
+					const skinnedN = this._skinNormals(morphedNormals, mesh, boneMatrices);
+					mesh.updateSkinnedNormals(skinnedN);
+					mesh.invalidateLighting();
+				}
+			}
+			else
+			{
+				// Non-morphed: use AnimationController's pre-computed skinned data
+				mesh.updateSkinnedPositions(this._animationController.getSkinnedPositions(i));
+
+				const normals = this._animationController.getSkinnedNormals(i);
+				if (normals)
+				{
+					mesh.updateSkinnedNormals(normals);
+					mesh.invalidateLighting(); // Force recalc since normals changed
+				}
 			}
 		}
+	}
+
+	/**
+	 * Skin positions on the main thread using bone matrices.
+	 * Used for meshes with morph targets where we need morphed positions as input.
+	 */
+	private _skinPositions(positions: Float32Array, mesh: GltfMeshType, boneMatrices: Float32Array): Float32Array
+	{
+		const skinning = mesh.skinningData;
+		if (!skinning) return positions;
+
+		const vertexCount = positions.length / 3;
+
+		// Reuse cached buffer to avoid per-frame allocation
+		let cached = this._morphSkinBuffers.get(mesh.id);
+		if (!cached || cached.positions.length !== positions.length)
+		{
+			const posBuffer = new Float32Array(positions.length);
+			const normBuffer = new Float32Array(positions.length);
+			cached = { positions: posBuffer, normals: normBuffer };
+			this._morphSkinBuffers.set(mesh.id, cached);
+		}
+		const output = cached.positions;
+		const joints = skinning.joints;
+		const weights = skinning.weights;
+
+		for (let v = 0; v < vertexCount; v++)
+		{
+			const posOffset = v * 3;
+			const skinOffset = v * 4;
+
+			const px = positions[posOffset];
+			const py = positions[posOffset + 1];
+			const pz = positions[posOffset + 2];
+
+			let rx = 0, ry = 0, rz = 0;
+
+			for (let j = 0; j < 4; j++)
+			{
+				const weight = weights[skinOffset + j];
+				if (weight === 0) continue;
+
+				const jointIdx = joints[skinOffset + j];
+				const boneOffset = jointIdx * 16;
+				const m = boneMatrices;
+
+				const tx = m[boneOffset + 0] * px + m[boneOffset + 4] * py + m[boneOffset + 8] * pz + m[boneOffset + 12];
+				const ty = m[boneOffset + 1] * px + m[boneOffset + 5] * py + m[boneOffset + 9] * pz + m[boneOffset + 13];
+				const tz = m[boneOffset + 2] * px + m[boneOffset + 6] * py + m[boneOffset + 10] * pz + m[boneOffset + 14];
+
+				rx += tx * weight;
+				ry += ty * weight;
+				rz += tz * weight;
+			}
+
+			output[posOffset] = rx;
+			output[posOffset + 1] = ry;
+			output[posOffset + 2] = rz;
+		}
+
+		return output;
+	}
+
+	/**
+	 * Skin normals on the main thread using bone matrices.
+	 * Used for meshes with morph targets where we need morphed normals as input.
+	 */
+	private _skinNormals(normals: Float32Array, mesh: GltfMeshType, boneMatrices: Float32Array): Float32Array
+	{
+		const skinning = mesh.skinningData;
+		if (!skinning) return normals;
+
+		const vertexCount = normals.length / 3;
+
+		// Reuse cached buffer (allocated by _skinPositions for same mesh)
+		let cached = this._morphSkinBuffers.get(mesh.id);
+		if (!cached || cached.normals.length !== normals.length)
+		{
+			const posBuffer = new Float32Array(normals.length);
+			const normBuffer = new Float32Array(normals.length);
+			cached = { positions: posBuffer, normals: normBuffer };
+			this._morphSkinBuffers.set(mesh.id, cached);
+		}
+		const output = cached.normals;
+		const joints = skinning.joints;
+		const weights = skinning.weights;
+
+		for (let v = 0; v < vertexCount; v++)
+		{
+			const posOffset = v * 3;
+			const skinOffset = v * 4;
+
+			const nx = normals[posOffset];
+			const ny = normals[posOffset + 1];
+			const nz = normals[posOffset + 2];
+
+			let rnx = 0, rny = 0, rnz = 0;
+
+			for (let j = 0; j < 4; j++)
+			{
+				const weight = weights[skinOffset + j];
+				if (weight === 0) continue;
+
+				const jointIdx = joints[skinOffset + j];
+				const boneOffset = jointIdx * 16;
+				const m = boneMatrices;
+
+				// Transform normal (rotation only, no translation — use upper-left 3x3)
+				const tx = m[boneOffset + 0] * nx + m[boneOffset + 4] * ny + m[boneOffset + 8] * nz;
+				const ty = m[boneOffset + 1] * nx + m[boneOffset + 5] * ny + m[boneOffset + 9] * nz;
+				const tz = m[boneOffset + 2] * nx + m[boneOffset + 6] * ny + m[boneOffset + 10] * nz;
+
+				rnx += tx * weight;
+				rny += ty * weight;
+				rnz += tz * weight;
+			}
+
+			output[posOffset] = rnx;
+			output[posOffset + 1] = rny;
+			output[posOffset + 2] = rnz;
+		}
+
+		return output;
 	}
 
 	/**
@@ -1041,22 +1234,32 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (!this._model || this._animationController) return;
 
-		// Check if model has skinning data
-		if (!this._model.hasSkinning || this._model.animations.length === 0)
+		// Need animations to create controller
+		if (this._model.animations.length === 0)
 		{
-			modelLoadLog("Model has no skinning data or animations, skipping animation controller");
+			modelLoadLog("Model has no animations, skipping animation controller");
 			return;
 		}
-
-		const skins = this._model.skins;
-		if (skins.length === 0) return;
 
 		const meshes = this._model.meshes;
 		if (!meshes || meshes.length === 0) return;
 
+		// Check if model has morph targets (morph-only models don't need skinning)
+		const hasMorphTargets = meshes.some(m => m.hasMorphTargets);
+
+		// Need either skinning or morph targets for animation
+		if (!this._model.hasSkinning && !hasMorphTargets)
+		{
+			modelLoadLog("Model has no skinning data or morph targets, skipping animation controller");
+			return;
+		}
+
+		const skins = this._model.skins;
+
 		// Build mesh data for animation controller and track skinned mesh indices
 		const animMeshes: { originalPositions: Float32Array; originalNormals?: Float32Array | null; skinningData: any }[] = [];
 		this._skinnedMeshIndices = [];
+		this._morphSkinBuffers.clear();
 		for (let i = 0; i < meshes.length; i++)
 		{
 			const mesh = meshes[i];
@@ -1071,23 +1274,35 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			}
 		}
 
-		if (animMeshes.length === 0)
+		// For morph-only models (no skinning), we still need the animation controller
+		// Use an empty skin with zero joints
+		const skinData = skins.length > 0 ? skins[0] : {
+			name: "",
+			joints: [],
+			inverseBindMatrices: new Float32Array(0),
+			nodeToJointIndex: new Map()
+		};
+
+		if (animMeshes.length === 0 && !hasMorphTargets)
 		{
-			modelLoadLog("No skinned meshes found, skipping animation controller");
+			modelLoadLog("No skinned meshes or morph targets found, skipping animation controller");
 			return;
 		}
 
 		try
 		{
 			this._animationController = new AnimationController({
-				skinData: skins[0], // Use first skin
+				skinData,
 				animations: [...this._model.animations],
 				meshes: animMeshes
 			});
 
-			// Force enable worker skinning - workers handle skinning, AnimationController skips main thread skinning
-			this._animationController.useWorkerSkinning = true;
-			console.log("[GltfStatic] Worker skinning FORCED enabled for animation controller");
+			// Force enable worker skinning when we have skinned meshes
+			if (animMeshes.length > 0)
+			{
+				this._animationController.useWorkerSkinning = true;
+				console.log("[GltfStatic] Worker skinning FORCED enabled for animation controller");
+			}
 
 			// Set up onComplete callback to trigger condition
 			this._animationController.onComplete = () =>
@@ -2000,6 +2215,61 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			size[1] * 0.5,
 			size[2] * 0.5
 		];
+	}
+
+	// ========================================================================
+	// Morph Target Methods
+	// ========================================================================
+
+	/**
+	 * Set a morph target weight by index on all meshes that have morph targets.
+	 * @param index The morph target index (0-based)
+	 * @param weight The weight value (typically 0 to 1)
+	 */
+	_setMorphWeight(index: number, weight: number): void
+	{
+		if (!this._model) return;
+		for (const mesh of this._model.meshes) {
+			if (mesh.hasMorphTargets) {
+				mesh.setMorphWeight(index, weight);
+			}
+		}
+	}
+
+	/**
+	 * Check if any mesh in the model has morph targets.
+	 */
+	_hasMorphTargets(): boolean
+	{
+		if (!this._model) return false;
+		return this._model.meshes.some(mesh => mesh.hasMorphTargets);
+	}
+
+	/**
+	 * Get the number of morph targets from the first mesh that has them.
+	 */
+	_getMorphTargetCount(): number
+	{
+		if (!this._model) return 0;
+		for (const mesh of this._model.meshes) {
+			if (mesh.hasMorphTargets) return mesh.morphTargetCount;
+		}
+		return 0;
+	}
+
+	/**
+	 * Get the morph target weight at the given index from the first mesh that has morph targets.
+	 * @param index The morph target index (0-based)
+	 */
+	_getMorphWeight(index: number): number
+	{
+		if (!this._model) return 0;
+		for (const mesh of this._model.meshes) {
+			if (mesh.hasMorphTargets && mesh.morphWeights) {
+				return (index >= 0 && index < mesh.morphWeights.length) ? mesh.morphWeights[index] : 0;
+			}
+		}
+		return 0;
 	}
 
 	// ========================================================================

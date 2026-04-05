@@ -1,6 +1,6 @@
 import { vec3, mat4, mat3 } from "gl-matrix";
 import type { TransformWorkerPool } from "./TransformWorkerPool.js";
-import type { MeshSkinningData, CachedSkinData } from "./types.js";
+import type { MeshSkinningData, CachedSkinData, MorphTargetData } from "./types.js";
 import type { GltfNode } from "./GltfNode.js";
 import { calculateMeshLighting, getVersion as getLightingVersion } from "./Lighting.js";
 
@@ -54,6 +54,13 @@ export class GltfMesh {
 	// Skinning data (reference to shared cached data, NOT owned)
 	private _skinningData: MeshSkinningData | null = null;
 	private _skinData: CachedSkinData | null = null;
+
+	// Morph target data
+	private _morphTargets: MorphTargetData[] | null = null;
+	private _morphWeights: Float32Array | null = null;
+	private _morphedPositions: Float32Array | null = null;
+	private _morphedNormals: Float32Array | null = null;
+	private _morphDirty: boolean = false;
 
 	// Debug: track mesh ID for logging
 	private static _nextId: number = 0;
@@ -154,6 +161,175 @@ export class GltfMesh {
 	setSkinningData(skinningData: MeshSkinningData | null, skinData: CachedSkinData | null): void {
 		this._skinningData = skinningData;
 		this._skinData = skinData;
+	}
+
+	// ========================================================================
+	// Morph Target Methods
+	// ========================================================================
+
+	/** Whether this mesh has morph targets */
+	get hasMorphTargets(): boolean {
+		return this._morphTargets !== null && this._morphTargets.length > 0;
+	}
+
+	/** Get number of morph targets */
+	get morphTargetCount(): number {
+		return this._morphTargets?.length ?? 0;
+	}
+
+	/** Get current morph weights (read-only view) */
+	get morphWeights(): Float32Array | null {
+		return this._morphWeights;
+	}
+
+	/**
+	 * Set morph target data for this mesh.
+	 * Called during model loading.
+	 */
+	setMorphTargets(targets: MorphTargetData[], defaultWeights?: number[]): void {
+		this._morphTargets = targets;
+		this._morphWeights = new Float32Array(targets.length);
+		if (defaultWeights) {
+			for (let i = 0; i < Math.min(defaultWeights.length, targets.length); i++) {
+				this._morphWeights[i] = defaultWeights[i];
+			}
+		}
+		// Allocate morphed buffers
+		if (this._originalPositions) {
+			this._morphedPositions = new Float32Array(this._originalPositions.length);
+		}
+		if (this._originalNormals) {
+			this._morphedNormals = new Float32Array(this._originalNormals.length);
+		}
+		this._morphDirty = true;
+	}
+
+	/**
+	 * Set a single morph target weight.
+	 */
+	setMorphWeight(index: number, weight: number): void {
+		if (!this._morphWeights || index < 0 || index >= this._morphWeights.length) return;
+		if (this._morphWeights[index] !== weight) {
+			this._morphWeights[index] = weight;
+			this._morphDirty = true;
+		}
+	}
+
+	/**
+	 * Set all morph weights at once (from animation).
+	 */
+	setMorphWeights(weights: Float32Array | number[]): void {
+		if (!this._morphWeights) return;
+		const count = Math.min(weights.length, this._morphWeights.length);
+		for (let i = 0; i < count; i++) {
+			this._morphWeights[i] = weights[i];
+		}
+		this._morphDirty = true;
+	}
+
+	/**
+	 * Apply morph target deltas to produce morphed positions/normals.
+	 * Returns morphed positions (or original if no morph targets or all weights zero).
+	 * Call this before skinning.
+	 */
+	getMorphedPositions(): Float32Array | null {
+		if (!this._morphTargets || !this._morphWeights || !this._originalPositions) {
+			return this._originalPositions;
+		}
+		// Skip if all weights are zero
+		if (this._allWeightsZero()) {
+			this._morphDirty = false;
+			return this._originalPositions;
+		}
+		if (!this._morphDirty && this._morphedPositions) {
+			return this._morphedPositions;
+		}
+		this._applyMorphTargets();
+		return this._morphedPositions;
+	}
+
+	/**
+	 * Get morphed normals (or original if no morph targets).
+	 */
+	getMorphedNormals(): Float32Array | null {
+		if (!this._morphTargets || !this._morphWeights || !this._originalNormals) {
+			return this._originalNormals;
+		}
+		if (this._allWeightsZero()) {
+			this._morphDirty = false;
+			return this._originalNormals;
+		}
+		if (!this._morphDirty && this._morphedNormals) {
+			return this._morphedNormals;
+		}
+		// _applyMorphTargets handles both positions and normals
+		this._applyMorphTargets();
+		return this._morphedNormals;
+	}
+
+	/** Check if all morph weights are zero (skip blending) */
+	private _allWeightsZero(): boolean {
+		if (!this._morphWeights) return true;
+		for (let i = 0; i < this._morphWeights.length; i++) {
+			if (this._morphWeights[i] !== 0) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Internal: blend morph target deltas into morphed buffers.
+	 * morphed = original + Σ(weight[i] * target[i].deltas)
+	 */
+	private _applyMorphTargets(): void {
+		const targets = this._morphTargets!;
+		const weights = this._morphWeights!;
+		const origPos = this._originalPositions!;
+		const morphedPos = this._morphedPositions!;
+
+		// Start from original positions
+		morphedPos.set(origPos);
+
+		// Accumulate weighted deltas
+		for (let t = 0; t < targets.length; t++) {
+			const w = weights[t];
+			if (w === 0) continue;
+
+			const deltas = targets[t].positionDeltas;
+			for (let i = 0; i < morphedPos.length; i++) {
+				morphedPos[i] += deltas[i] * w;
+			}
+		}
+
+		// Apply to normals if available
+		if (this._originalNormals && this._morphedNormals) {
+			this._morphedNormals.set(this._originalNormals);
+
+			for (let t = 0; t < targets.length; t++) {
+				const w = weights[t];
+				if (w === 0) continue;
+
+				const normalDeltas = targets[t].normalDeltas;
+				if (!normalDeltas) continue;
+
+				for (let i = 0; i < this._morphedNormals.length; i++) {
+					this._morphedNormals[i] += normalDeltas[i] * w;
+				}
+			}
+
+			// Renormalize
+			const normals = this._morphedNormals;
+			for (let v = 0; v < normals.length; v += 3) {
+				const nx = normals[v], ny = normals[v + 1], nz = normals[v + 2];
+				const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+				if (len > 0.0001) {
+					normals[v] /= len;
+					normals[v + 1] /= len;
+					normals[v + 2] /= len;
+				}
+			}
+		}
+
+		this._morphDirty = false;
 	}
 
 	/**
@@ -359,9 +535,10 @@ export class GltfMesh {
 		if (!this._originalNormals || !this._hasNormals) return;
 		if (this.isSkinned) return; // Skinned meshes use queueSkinning with lightConfig
 
-		// Don't use worker lighting for meshes with animated ancestors
+		// Don't use worker lighting for meshes with animated ancestors or morph targets
 		// Their positions change each frame, but worker has cached positions
 		if (this._parentNode?.hasAnimatedAncestor()) return;
+		if (this.hasMorphTargets) return;
 
 		this._workerPool = pool;
 
@@ -446,27 +623,15 @@ export class GltfMesh {
 	}
 
 	/**
-	 * Update vertex positions synchronously.
-	 * Skips transform if matrix hasn't changed (avoids redundant GPU uploads).
-	 * Uses inline matrix math for performance.
+	 * Core: transform source positions and normals by a 4x4 matrix and upload to GPU.
+	 * All position/normal transform methods delegate to this.
 	 */
-	updateTransformSync(matrix: Float32Array): void {
-		if (!this._meshData || !this._originalPositions) return;
-
-		// Skip if matrix hasn't changed
-		if (!this._isMatrixDirty(matrix)) return;
-
-		// Store copy of matrix for dirty checking
-		if (!this._lastMatrix) {
-			this._lastMatrix = new Float32Array(16);
-		}
-		this._lastMatrix.set(matrix);
+	private _transformToGPU(srcPositions: Float32Array, srcNormals: Float32Array | null, matrix: Float32Array): void {
+		if (!this._meshData) return;
 
 		const positions = this._meshData.positions;
-		const original = this._originalPositions;
 		const n = this._vertexCount;
 
-		// Pre-extract matrix elements (avoids repeated array access)
 		const m0 = matrix[0], m1 = matrix[1], m2 = matrix[2];
 		const m4 = matrix[4], m5 = matrix[5], m6 = matrix[6];
 		const m8 = matrix[8], m9 = matrix[9], m10 = matrix[10];
@@ -474,9 +639,9 @@ export class GltfMesh {
 
 		for (let i = 0; i < n; i++) {
 			const idx = i * 3;
-			const x = original[idx];
-			const y = original[idx + 1];
-			const z = original[idx + 2];
+			const x = srcPositions[idx];
+			const y = srcPositions[idx + 1];
+			const z = srcPositions[idx + 2];
 
 			positions[idx] = m0 * x + m4 * y + m8 * z + m12;
 			positions[idx + 1] = m1 * x + m5 * y + m9 * z + m13;
@@ -484,6 +649,45 @@ export class GltfMesh {
 		}
 
 		this._meshData.markDataChanged("positions", 0, n);
+
+		// Transform normals (3x3 rotation/scale, renormalize)
+		if (srcNormals && this._transformedNormals) {
+			for (let i = 0; i < n; i++) {
+				const idx = i * 3;
+				const nx = srcNormals[idx];
+				const ny = srcNormals[idx + 1];
+				const nz = srcNormals[idx + 2];
+
+				let tnx = m0 * nx + m4 * ny + m8 * nz;
+				let tny = m1 * nx + m5 * ny + m9 * nz;
+				let tnz = m2 * nx + m6 * ny + m10 * nz;
+
+				const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
+				if (len > 0.0001) {
+					tnx /= len; tny /= len; tnz /= len;
+				}
+
+				this._transformedNormals[idx] = tnx;
+				this._transformedNormals[idx + 1] = tny;
+				this._transformedNormals[idx + 2] = tnz;
+			}
+		}
+
+		this._needsLightingUpdate = true;
+	}
+
+	/**
+	 * Transform original positions by a matrix and upload to GPU.
+	 * Skips if matrix hasn't changed.
+	 */
+	updateTransformSync(matrix: Float32Array): void {
+		if (!this._meshData || !this._originalPositions) return;
+		if (!this._isMatrixDirty(matrix)) return;
+
+		if (!this._lastMatrix) this._lastMatrix = new Float32Array(16);
+		this._lastMatrix.set(matrix);
+
+		this._transformToGPU(this._originalPositions, this._originalNormals, matrix);
 	}
 
 	/**
@@ -496,15 +700,13 @@ export class GltfMesh {
 
 	/**
 	 * Update positions based on parent node's world matrix combined with instance transform.
-	 * Used for static meshes under animated joints.
-	 * @param instanceMatrix C3 instance world matrix; if provided, multiplied with node world matrix.
+	 * For static meshes under animated joints, uses morphed positions if available.
 	 */
 	updateNodeTransform(instanceMatrix?: Float32Array): void {
 		if (!this._parentNode || !this._meshData || !this._originalPositions || this.isSkinned) return;
 
 		const nodeWorld = this._parentNode.getWorldMatrix();
 
-		// Combine: instanceMatrix * nodeWorldMatrix when instance matrix is provided
 		let finalMatrix: Float32Array;
 		if (instanceMatrix) {
 			if (!this._tempMatrix) this._tempMatrix = new Float32Array(16);
@@ -518,65 +720,28 @@ export class GltfMesh {
 			finalMatrix = nodeWorld;
 		}
 
-		// Skip if matrix hasn't changed
-		if (!this._isMatrixDirty(finalMatrix)) return;
+		if (!this._isMatrixDirty(finalMatrix) && !this._morphDirty) return;
 
-		// Store copy of matrix for dirty checking
-		if (!this._lastMatrix) {
-			this._lastMatrix = new Float32Array(16);
-		}
+		if (!this._lastMatrix) this._lastMatrix = new Float32Array(16);
 		this._lastMatrix.set(finalMatrix);
-		this._needsLightingUpdate = true;
 
-		const positions = this._meshData.positions;
-		const original = this._originalPositions;
-		const n = this._vertexCount;
+		const srcPos = this.hasMorphTargets ? this.getMorphedPositions()! : this._originalPositions;
+		const srcNorm = this.hasMorphTargets ? this.getMorphedNormals() : this._originalNormals;
+		this._transformToGPU(srcPos, srcNorm, finalMatrix);
+	}
 
-		// Pre-extract matrix elements
-		const m0 = finalMatrix[0], m1 = finalMatrix[1], m2 = finalMatrix[2];
-		const m4 = finalMatrix[4], m5 = finalMatrix[5], m6 = finalMatrix[6];
-		const m8 = finalMatrix[8], m9 = finalMatrix[9], m10 = finalMatrix[10];
-		const m12 = finalMatrix[12], m13 = finalMatrix[13], m14 = finalMatrix[14];
+	/**
+	 * Apply morph target deltas and transform by instance matrix only.
+	 * For baked static meshes with morph targets (positions already include node world transform).
+	 */
+	applyMorphedTransform(instanceMatrix: Float32Array): void {
+		if (!this._meshData || !this._originalPositions) return;
 
-		for (let i = 0; i < n; i++) {
-			const idx = i * 3;
-			const x = original[idx];
-			const y = original[idx + 1];
-			const z = original[idx + 2];
-
-			positions[idx] = m0 * x + m4 * y + m8 * z + m12;
-			positions[idx + 1] = m1 * x + m5 * y + m9 * z + m13;
-			positions[idx + 2] = m2 * x + m6 * y + m10 * z + m14;
-		}
-
-		this._meshData.markDataChanged("positions", 0, n);
-
-		// Also transform normals for correct lighting
-		if (this._originalNormals && this._transformedNormals) {
-			// Extract upper-left 3x3 for normal transformation
-			for (let i = 0; i < n; i++) {
-				const idx = i * 3;
-				const nx = this._originalNormals[idx];
-				const ny = this._originalNormals[idx + 1];
-				const nz = this._originalNormals[idx + 2];
-
-				let tnx = m0 * nx + m4 * ny + m8 * nz;
-				let tny = m1 * nx + m5 * ny + m9 * nz;
-				let tnz = m2 * nx + m6 * ny + m10 * nz;
-
-				// Renormalize
-				const len = Math.sqrt(tnx * tnx + tny * tny + tnz * tnz);
-				if (len > 0.0001) {
-					tnx /= len;
-					tny /= len;
-					tnz /= len;
-				}
-
-				this._transformedNormals[idx] = tnx;
-				this._transformedNormals[idx + 1] = tny;
-				this._transformedNormals[idx + 2] = tnz;
-			}
-		}
+		this._transformToGPU(
+			this.getMorphedPositions()!,
+			this.getMorphedNormals(),
+			instanceMatrix
+		);
 	}
 
 	/**

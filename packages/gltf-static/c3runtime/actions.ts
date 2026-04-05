@@ -201,5 +201,11 @@ C3.Plugins.GltfStatic.Acts =
 	SetTextureAnimSpeed(this: SDKInstanceClass, speed: number): void
 	{
 		this._setTextureAnimSpeed(speed);
+	},
+
+	// Morph target actions
+	SetMorphWeight(this: SDKInstanceClass, index: number, weight: number): void
+	{
+		this._setMorphWeight(index, weight);
 	}
 };

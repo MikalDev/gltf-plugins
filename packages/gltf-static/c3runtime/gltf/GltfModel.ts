@@ -1,4 +1,4 @@
-import { WebIO, Node as GltfNodeDef, Texture, Primitive, Root, Skin, Animation } from "@gltf-transform/core";
+import { WebIO, Node as GltfNodeDef, Texture, Primitive, Root, Skin, Animation, Mesh as GltfMeshDef } from "@gltf-transform/core";
 import { mat4, quat, vec3 } from "gl-matrix";
 import { GltfMesh } from "./GltfMesh.js";
 import { GltfNode } from "./GltfNode.js";
@@ -14,7 +14,8 @@ import {
 	AnimationSamplerData,
 	AnimationChannelData,
 	AnimationInterpolation,
-	AnimationTargetPath
+	AnimationTargetPath,
+	MorphTargetData
 } from "./types.js";
 import { isBuiltinModelUrl, resolveBuiltinUrl } from "./BuiltinModels.js";
 
@@ -830,7 +831,8 @@ export class GltfModel {
 					primitive,
 					textureMap,
 					skinIndex,
-					node
+					node,
+					mesh
 				);
 
 				if (gltfMesh) {
@@ -881,7 +883,8 @@ export class GltfModel {
 		primitive: Primitive,
 		textureMap: Map<Texture, ITexture>,
 		skinIndex?: number,
-		parentNode?: GltfNode
+		parentNode?: GltfNode,
+		meshDef?: GltfMeshDef
 	): GltfMesh | null {
 		// Extract raw data
 		const posAccessor = primitive.getAttribute("POSITION");
@@ -1035,6 +1038,48 @@ export class GltfModel {
 		// Create and return mesh
 		const mesh = new GltfMesh();
 		mesh.create(renderer, positions, texCoords, indices, texture, normals, sourceColors);
+
+		// Extract morph targets from primitive
+		const gltfTargets = primitive.listTargets();
+		if (gltfTargets.length > 0) {
+			// Get the world matrix for transforming deltas (same as positions were baked with)
+			const worldMatrix = (!skinIndex && !hasAnimatedAncestor) ? parentNode?.getWorldMatrix() : null;
+
+			const morphTargets: MorphTargetData[] = [];
+			for (const target of gltfTargets) {
+				const posAttr = target.getAttribute("POSITION");
+				const normAttr = target.getAttribute("NORMAL");
+
+				if (!posAttr) continue;
+
+				const posDeltas = posAttr.getArray();
+				if (!posDeltas) continue;
+
+				let posDeltasF32 = posDeltas instanceof Float32Array ? new Float32Array(posDeltas) : new Float32Array(posDeltas);
+				const normalDeltasRaw = normAttr?.getArray();
+				let normalDeltasF32 = normalDeltasRaw ? (normalDeltasRaw instanceof Float32Array ? new Float32Array(normalDeltasRaw) : new Float32Array(normalDeltasRaw)) : null;
+
+				// Transform deltas by node world matrix if positions were baked
+				if (worldMatrix) {
+					posDeltasF32 = this._transformDeltas(posDeltasF32, worldMatrix as unknown as mat4);
+					if (normalDeltasF32) {
+						normalDeltasF32 = this._transformNormals(new Float32Array(normalDeltasF32), worldMatrix as unknown as mat4);
+					}
+				}
+
+				morphTargets.push({
+					positionDeltas: posDeltasF32,
+					normalDeltas: normalDeltasF32
+				});
+			}
+
+			if (morphTargets.length > 0) {
+				const defaultWeights = meshDef?.getWeights() ?? [];
+				mesh.setMorphTargets(morphTargets, defaultWeights);
+				debugLog(`    Morph targets: ${morphTargets.length} targets, default weights: [${defaultWeights.map(w => w.toFixed(2)).join(', ')}]`);
+			}
+		}
+
 		return mesh;
 	}
 
@@ -1072,6 +1117,32 @@ export class GltfModel {
 				result[idx + 1] = 1;
 				result[idx + 2] = 0;
 			}
+		}
+
+		return result;
+	}
+
+	/**
+	 * Transform position deltas by the upper-left 3x3 of a matrix (rotation/scale, no translation).
+	 * Unlike normals, deltas are NOT normalized since they represent displacements.
+	 */
+	private _transformDeltas(deltas: Float32Array, matrix: mat4): Float32Array {
+		const result = new Float32Array(deltas.length);
+		const n = deltas.length / 3;
+
+		const m0 = matrix[0], m1 = matrix[1], m2 = matrix[2];
+		const m4 = matrix[4], m5 = matrix[5], m6 = matrix[6];
+		const m8 = matrix[8], m9 = matrix[9], m10 = matrix[10];
+
+		for (let i = 0; i < n; i++) {
+			const idx = i * 3;
+			const dx = deltas[idx];
+			const dy = deltas[idx + 1];
+			const dz = deltas[idx + 2];
+
+			result[idx] = m0 * dx + m4 * dy + m8 * dz;
+			result[idx + 1] = m1 * dx + m5 * dy + m9 * dz;
+			result[idx + 2] = m2 * dx + m6 * dy + m10 * dz;
 		}
 
 		return result;
@@ -1379,11 +1450,21 @@ export class GltfModel {
 			// Look up joint index
 			const targetJointIndex = nodeToJointIndex.get(targetNode) ?? -1;
 
+			// For "weights" channels, determine morph target count from sampler data
+			let morphTargetCount: number | undefined;
+			if (targetPath === "weights") {
+				const samplerData = samplers[samplerIndex];
+				if (samplerData && samplerData.input.length > 0) {
+					morphTargetCount = samplerData.output.length / samplerData.input.length;
+				}
+			}
+
 			channels.push({
 				targetJointIndex,
 				targetNode: targetJointIndex === -1 ? targetNode : null,
 				targetPath,
-				samplerIndex
+				samplerIndex,
+				morphTargetCount
 			});
 		}
 

@@ -50,6 +50,17 @@ interface ActiveChannel {
 	sampler: AnimationSamplerData;
 }
 
+/** Morph weight state: current interpolated weights for a "weights" channel */
+interface MorphWeightState {
+	/** Number of morph targets */
+	count: number;
+	/** Current interpolated weights */
+	weights: Float32Array;
+	/** Pre-allocated interpolation buffers */
+	bufA: Float32Array;
+	bufB: Float32Array;
+}
+
 /**
  * AnimationController handles skeletal animation playback and CPU skinning.
  *
@@ -109,8 +120,14 @@ export class AnimationController {
 	// At blendTo() time, current pose is frozen into _blendFromTransforms.
 	// During blend, new animation evaluates normally; result is lerped from snapshot toward it.
 	private _blendFromTransforms: JointTransform[] | null = null; // frozen pose snapshot
+	private _blendFromMorphWeights: Float32Array[] | null = null; // frozen morph weight snapshot
 	private _blendDuration: number = 0;                           // total crossfade seconds
 	private _blendElapsed: number = 0;                            // seconds into crossfade
+
+	// Morph target weight state (one per "weights" channel, keyed by channel index)
+	private _morphWeightStates: MorphWeightState[] = [];
+	// Whether morph weights changed this frame (dirty flag for instance to check)
+	private _morphWeightsDirty: boolean = false;
 
 	// Pre-allocated temp vectors/matrices (reused each frame to avoid GC)
 	private readonly _tempVec3A: Float32Array;
@@ -248,6 +265,9 @@ export class AnimationController {
 			this._allocateBlendFromTransforms();
 		}
 		this._copyJointTransforms(this._jointTransforms, this._blendFromTransforms!);
+
+		// Snapshot current morph weights
+		this._blendFromMorphWeights = this._morphWeightStates.map(s => new Float32Array(s.weights));
 
 		// Switch to new animation
 		this._currentAnimation = anim;
@@ -390,6 +410,20 @@ export class AnimationController {
 			this._blendElapsed += deltaTime;
 			const t = Math.min(this._blendElapsed / this._blendDuration, 1);
 			this._lerpJointTransforms(this._blendFromTransforms!, this._jointTransforms, t);
+
+			// Blend morph weights if snapshot exists
+			if (this._blendFromMorphWeights) {
+				for (let i = 0; i < this._morphWeightStates.length && i < this._blendFromMorphWeights.length; i++) {
+					const fromWeights = this._blendFromMorphWeights[i];
+					const toWeights = this._morphWeightStates[i].weights;
+					const count = Math.min(fromWeights.length, toWeights.length);
+					for (let j = 0; j < count; j++) {
+						toWeights[j] = fromWeights[j] + (toWeights[j] - fromWeights[j]) * t;
+					}
+				}
+				this._morphWeightsDirty = true;
+			}
+
 			if (t >= 1) this._clearBlendState();
 		}
 
@@ -747,6 +781,7 @@ export class AnimationController {
 	private _clearBlendState(): void {
 		this._blendDuration = 0;
 		this._blendElapsed = 0;
+		this._blendFromMorphWeights = null;
 	}
 
 	// ========================================================================
@@ -759,18 +794,34 @@ export class AnimationController {
 	 */
 	private _cacheActiveChannels(anim: CachedAnimationData): void {
 		this._activeChannels = [];
+		this._morphWeightStates = [];
+
 		for (const channel of anim.channels) {
-			// Skip channels targeting non-joint nodes or invalid joints
-			if (channel.targetJointIndex < 0 || channel.targetJointIndex >= this._skinData.joints.length) {
-				continue;
-			}
 			const sampler = anim.samplers[channel.samplerIndex];
 			if (!sampler || sampler.input.length === 0) {
 				continue;
 			}
+
+			// "weights" channels target mesh nodes, not joints — always include
+			if (channel.targetPath === "weights" && channel.morphTargetCount && channel.morphTargetCount > 0) {
+				const count = channel.morphTargetCount;
+				this._morphWeightStates.push({
+					count,
+					weights: new Float32Array(count),
+					bufA: new Float32Array(count),
+					bufB: new Float32Array(count)
+				});
+				this._activeChannels.push({ channel, sampler });
+				continue;
+			}
+
+			// Skip non-joint channels for transform paths
+			if (channel.targetJointIndex < 0 || channel.targetJointIndex >= this._skinData.joints.length) {
+				continue;
+			}
 			this._activeChannels.push({ channel, sampler });
 		}
-		debugLog(`Cached ${this._activeChannels.length} active channels`);
+		debugLog(`Cached ${this._activeChannels.length} active channels (${this._morphWeightStates.length} morph weight channels)`);
 	}
 
 	/**
@@ -789,6 +840,12 @@ export class AnimationController {
 			mat4.getRotation(transform.rotation as quat, bindMat as mat4);
 			mat4.getScaling(transform.scale as vec3, bindMat as mat4);
 		}
+
+		// Reset morph weights to zero
+		for (const state of this._morphWeightStates) {
+			state.weights.fill(0);
+		}
+		this._morphWeightsDirty = true;
 	}
 
 	/**
@@ -796,7 +853,19 @@ export class AnimationController {
 	 * Updates joint transforms in place.
 	 */
 	private _evaluateAnimation(time: number): void {
+		let morphStateIndex = 0;
+
 		for (const { channel, sampler } of this._activeChannels) {
+			if (channel.targetPath === "weights") {
+				// Handle morph target weights (variable size)
+				const state = this._morphWeightStates[morphStateIndex++];
+				if (state) {
+					this._sampleMorphWeights(sampler, time, state);
+					this._morphWeightsDirty = true;
+				}
+				continue;
+			}
+
 			const jointIndex = channel.targetJointIndex;
 			const transform = this._jointTransforms[jointIndex];
 			const value = this._sampleChannel(sampler, time, channel.targetPath);
@@ -820,7 +889,6 @@ export class AnimationController {
 					transform.scale[1] = value[1];
 					transform.scale[2] = value[2];
 					break;
-				// "weights" (morph targets) not implemented
 			}
 		}
 	}
@@ -910,6 +978,79 @@ export class AnimationController {
 			buf[2] = values[offset + 2];
 			return buf;
 		}
+	}
+
+	/**
+	 * Sample morph weights from a "weights" animation channel.
+	 * Handles variable number of weights per keyframe.
+	 */
+	private _sampleMorphWeights(sampler: AnimationSamplerData, time: number, state: MorphWeightState): void {
+		const times = sampler.input;
+		const values = sampler.output;
+		const count = state.count;
+
+		if (times.length === 0) return;
+
+		// Before first keyframe
+		if (time <= times[0]) {
+			for (let i = 0; i < count; i++) {
+				state.weights[i] = values[i];
+			}
+			return;
+		}
+
+		// After last keyframe
+		if (time >= times[times.length - 1]) {
+			const lastOffset = (times.length - 1) * count;
+			for (let i = 0; i < count; i++) {
+				state.weights[i] = values[lastOffset + i];
+			}
+			return;
+		}
+
+		// Find keyframe interval
+		let k = 0;
+		while (k < times.length - 1 && time > times[k + 1]) {
+			k++;
+		}
+
+		const t0 = times[k];
+		const t1 = times[k + 1];
+		const factor = (time - t0) / (t1 - t0);
+
+		if (sampler.interpolation === "STEP") {
+			const offset = k * count;
+			for (let i = 0; i < count; i++) {
+				state.weights[i] = values[offset + i];
+			}
+			return;
+		}
+
+		// LINEAR interpolation
+		const offset0 = k * count;
+		const offset1 = (k + 1) * count;
+		for (let i = 0; i < count; i++) {
+			state.weights[i] = values[offset0 + i] + (values[offset1 + i] - values[offset0 + i]) * factor;
+		}
+	}
+
+	// ========================================================================
+	// Public: Morph Weight Access
+	// ========================================================================
+
+	/** Get morph weight states (for instance to apply to meshes) */
+	getMorphWeightStates(): MorphWeightState[] {
+		return this._morphWeightStates;
+	}
+
+	/** Whether morph weights changed since last clear */
+	get morphWeightsDirty(): boolean {
+		return this._morphWeightsDirty;
+	}
+
+	/** Clear morph weights dirty flag (call after applying to meshes) */
+	clearMorphWeightsDirty(): void {
+		this._morphWeightsDirty = false;
 	}
 
 	// ========================================================================
