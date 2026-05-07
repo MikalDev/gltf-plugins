@@ -1,4 +1,4 @@
-import { WebIO, Node as GltfNodeDef, Texture, Primitive, Root, Skin, Animation, Mesh as GltfMeshDef } from "@gltf-transform/core";
+import { WebIO, Node as GltfNodeDef, Texture, TextureInfo, Primitive, Root, Skin, Animation, Mesh as GltfMeshDef } from "@gltf-transform/core";
 import { mat4, quat, vec3 } from "gl-matrix";
 import { GltfMesh } from "./GltfMesh.js";
 import { GltfNode } from "./GltfNode.js";
@@ -52,6 +52,106 @@ export interface GltfModelOptions {
 	useWorkers?: boolean;
 	/** Number of workers in pool. Default: cores - 1 */
 	workerCount?: number;
+}
+
+// glTF sampler filter constants (WebGL enums)
+const GL_NEAREST = 9728;
+const GL_LINEAR = 9729;
+const GL_NEAREST_MIPMAP_NEAREST = 9984;
+const GL_LINEAR_MIPMAP_NEAREST = 9985;
+const GL_NEAREST_MIPMAP_LINEAR = 9986;
+const GL_LINEAR_MIPMAP_LINEAR = 9987;
+
+// glTF sampler wrap constants (WebGL enums)
+const GL_CLAMP_TO_EDGE = 33071;
+const GL_MIRRORED_REPEAT = 33648;
+const GL_REPEAT = 10497;
+
+interface ResolvedSamplerOptions {
+	sampling: "nearest" | "bilinear" | "trilinear";
+	defaultSampling: "nearest" | "bilinear" | "trilinear";
+	mipMap: boolean;
+	wrapX: "clamp-to-edge" | "repeat" | "mirror-repeat";
+	wrapY: "clamp-to-edge" | "repeat" | "mirror-repeat";
+}
+
+function gltfWrapToC3(wrap: number): "clamp-to-edge" | "repeat" | "mirror-repeat" {
+	switch (wrap) {
+		case GL_CLAMP_TO_EDGE: return "clamp-to-edge";
+		case GL_MIRRORED_REPEAT: return "mirror-repeat";
+		case GL_REPEAT:
+		default: return "repeat";
+	}
+}
+
+function minFilterUsesMipmaps(minFilter: number | null): boolean {
+	return minFilter === GL_NEAREST_MIPMAP_NEAREST
+		|| minFilter === GL_LINEAR_MIPMAP_NEAREST
+		|| minFilter === GL_NEAREST_MIPMAP_LINEAR
+		|| minFilter === GL_LINEAR_MIPMAP_LINEAR;
+}
+
+/**
+ * Map glTF TextureInfo sampler state to C3 createStaticTexture options.
+ * If info is null (no usage found), defaults to the previous hardcoded behavior:
+ * bilinear with mipmaps and repeat wrap.
+ */
+function resolveSamplerOptions(info: TextureInfo | null): ResolvedSamplerOptions {
+	if (!info) {
+		return {
+			sampling: "bilinear",
+			defaultSampling: "bilinear",
+			mipMap: true,
+			wrapX: "repeat",
+			wrapY: "repeat",
+		};
+	}
+
+	const mag = info.getMagFilter();
+	const min = info.getMinFilter();
+	const wantsMipmaps = minFilterUsesMipmaps(min);
+
+	let sampling: "nearest" | "bilinear" | "trilinear";
+	if (mag === GL_NEAREST) {
+		sampling = "nearest";
+	} else if (mag === GL_LINEAR) {
+		sampling = wantsMipmaps ? "trilinear" : "bilinear";
+	} else {
+		// Mag unset — infer from min, otherwise keep default
+		if (min === GL_NEAREST || min === GL_NEAREST_MIPMAP_NEAREST || min === GL_NEAREST_MIPMAP_LINEAR) {
+			sampling = "nearest";
+		} else {
+			sampling = wantsMipmaps ? "trilinear" : "bilinear";
+		}
+	}
+
+	return {
+		sampling,
+		defaultSampling: sampling,
+		mipMap: sampling !== "nearest" && wantsMipmaps,
+		wrapX: gltfWrapToC3(info.getWrapS()),
+		wrapY: gltfWrapToC3(info.getWrapT()),
+	};
+}
+
+/**
+ * Build first-wins map from Texture → TextureInfo by walking all materials.
+ * If the same Texture is referenced by multiple TextureInfos with different
+ * samplers, the first one encountered wins.
+ */
+function buildTextureSamplerMap(root: Root): Map<Texture, TextureInfo> {
+	const map = new Map<Texture, TextureInfo>();
+	const record = (tex: Texture | null, info: TextureInfo | null) => {
+		if (tex && info && !map.has(tex)) map.set(tex, info);
+	};
+	for (const material of root.listMaterials()) {
+		record(material.getBaseColorTexture(), material.getBaseColorTextureInfo());
+		record(material.getMetallicRoughnessTexture(), material.getMetallicRoughnessTextureInfo());
+		record(material.getNormalTexture(), material.getNormalTextureInfo());
+		record(material.getEmissiveTexture(), material.getEmissiveTextureInfo());
+		record(material.getOcclusionTexture(), material.getOcclusionTextureInfo());
+	}
+	return map;
 }
 
 /**
@@ -719,6 +819,7 @@ export class GltfModel {
 	): Promise<Map<Texture, ITexture>> {
 		const map = new Map<Texture, ITexture>();
 		const textureList = root.listTextures();
+		const samplerMap = buildTextureSamplerMap(root);
 		debugLog(`Found ${textureList.length} texture(s) in document`);
 
 		let textureIndex = 0;
@@ -732,12 +833,9 @@ export class GltfModel {
 				debugLog(`Texture ${textureIndex}: ${bitmap.width}x${bitmap.height} (${mimeType}, ${imageData.byteLength} bytes)`);
 
 				try {
-					const c3Texture = await renderer.createStaticTexture(bitmap, {
-						sampling: "bilinear",
-						mipMap: true,
-						wrapX: "repeat",
-						wrapY: "repeat"
-					});
+					const opts = resolveSamplerOptions(samplerMap.get(texture) ?? null);
+					debugLog(`  sampler: ${opts.sampling}, mipMap: ${opts.mipMap}, wrap: ${opts.wrapX}/${opts.wrapY}`);
+					const c3Texture = await renderer.createStaticTexture(bitmap, opts);
 
 					loadedTextures.push(c3Texture);
 					map.set(texture, c3Texture);

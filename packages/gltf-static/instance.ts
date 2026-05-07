@@ -1436,7 +1436,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				// Default gray when no vertex colors
 				if (!vertexColors)
 				{
-					iRenderer.SetColorRgba(0.7, 0.7, 0.7, 1);
+					iRenderer.SetColorRgba(1, 1, 1, 1);
 				}
 
 				iRenderer.DrawMesh(mesh.positions, mesh.uvs, mesh.indices, vertexColors);
