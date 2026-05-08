@@ -1001,6 +1001,27 @@ export class GltfMesh {
 	}
 
 	/**
+	 * Flip the V coordinate of every UV in place (v → 1 - v).
+	 * Used to compensate for glTF assets authored with the opposite V convention
+	 * from C3's texture upload. Mutates both the GPU buffer and the stored
+	 * originals so subsequent atlas remapping uses the flipped baseline.
+	 */
+	flipTexCoordsV(): void {
+		if (!this._meshData) return;
+		const uvs = this._meshData.texCoords;
+		for (let i = 0; i < this._vertexCount; i++) {
+			uvs[i * 2 + 1] = 1 - uvs[i * 2 + 1];
+		}
+		if (this._originalTexCoords) {
+			const orig = this._originalTexCoords;
+			for (let i = 0; i < this._vertexCount; i++) {
+				orig[i * 2 + 1] = 1 - orig[i * 2 + 1];
+			}
+		}
+		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
+	}
+
+	/**
 	 * Remap UV coordinates from [0,1] model space to a sub-rect within an atlas texture.
 	 * This is a one-shot operation — calling it twice will produce incorrect results.
 	 */

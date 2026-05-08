@@ -54,6 +54,11 @@
 				"id": "is-builtin-enabled",
 				"scriptName": "IsBuiltinEnabled",
 				"highlight": false
+			},
+			{
+				"id": "is-flip-v",
+				"scriptName": "IsFlipV",
+				"highlight": false
 			}
 		],
 		"actions": [
@@ -300,6 +305,21 @@
 						]
 					}
 				]
+			},
+			{
+				"id": "set-flip-v",
+				"scriptName": "SetFlipV",
+				"highlight": false,
+				"params": [
+					{
+						"id": "enabled",
+						"type": "combo",
+						"items": [
+							"disabled",
+							"enabled"
+						]
+					}
+				]
 			}
 		],
 		"expressions": [
@@ -403,6 +423,11 @@
 				"id": "builtin-model-type",
 				"expressionName": "BuiltinModelType",
 				"returnType": "string"
+			},
+			{
+				"id": "flip-v",
+				"expressionName": "FlipV",
+				"returnType": "number"
 			}
 		]
 	},

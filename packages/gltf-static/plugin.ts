@@ -58,7 +58,8 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 				items: ["cube", "sphere", "capsule", "cylinder", "cone", "ramp", "plane"],
 				initialValue: "cube"
 			}),
-			new SDK.PluginProperty("float", "bbox-scale", 1)
+			new SDK.PluginProperty("float", "bbox-scale", 1),
+			new SDK.PluginProperty("check", "flip-v", false)
 		]);
 
 		SDK.Lang.PopContext();

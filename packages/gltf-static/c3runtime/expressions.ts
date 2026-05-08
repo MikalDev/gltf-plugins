@@ -68,6 +68,11 @@ C3.Plugins.GltfStatic.Exps =
 		return this._getBuiltinModelType();
 	},
 
+	FlipV(this: SDKInstanceClass): number
+	{
+		return this._getFlipV();
+	},
+
 	// Animation expressions
 	AnimationTime(this: SDKInstanceClass): number
 	{

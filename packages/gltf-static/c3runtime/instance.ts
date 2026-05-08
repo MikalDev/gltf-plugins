@@ -62,6 +62,7 @@ const PROP_SCALE = 5;
 const PROP_USE_BUILTIN = 6;
 const PROP_BUILTIN_TYPE = 7;
 const PROP_BBOX_SCALE = 8;
+const PROP_FLIP_V = 9;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempVec = vec3.create();
@@ -124,6 +125,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Physics integration
 	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
 
+	// Flip texture V on load (compensates for glTF assets with opposite V convention)
+	_flipV: boolean = false;
+
 	// Per-light occlusion cache: stores intensity factor and per-ray tags/results.
 	// 5 rays per light: center, top, bottom, left, right.
 	_lightOcclusionCache: Map<number, { factor: number; rays: Array<{ tag: string; resultKey: string; hit: boolean }> }> = new Map();
@@ -177,6 +181,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._builtinModelType = props[PROP_BUILTIN_TYPE] as number;
 			// Bounding box scale
 			this._bboxScale = props[PROP_BBOX_SCALE] as number;
+			// Flip V toggle (for glTF assets with opposite V convention)
+			this._flipV = props[PROP_FLIP_V] as boolean;
 
 			debugLog("Properties loaded:", {
 				modelUrl: this._modelUrl,
@@ -1045,6 +1051,33 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		return this._model?.isLoaded ?? false;
 	}
 
+	// Flip V control methods
+	_isFlipV(): boolean
+	{
+		return this._flipV;
+	}
+
+	_getFlipV(): number
+	{
+		return this._flipV ? 1 : 0;
+	}
+
+	_setFlipV(value: boolean): void
+	{
+		if (this._flipV === value) return;
+		this._flipV = value;
+
+		// Skip in-place flip for built-ins (their UVs are hand-authored to look correct).
+		// For glTF models, re-flip currently-loaded UVs in place so the change is immediate
+		// without requiring a model reload (preserves animation pose, mesh visibility, etc).
+		if (this._useBuiltinModel) return;
+		if (!this._model?.isLoaded) return;
+
+		for (const mesh of this._model.meshes) {
+			mesh.flipTexCoordsV();
+		}
+	}
+
 	// Worker control methods
 	_setWorkerEnabled(enabled: boolean): void
 	{
@@ -1628,7 +1661,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		try
 		{
 			this._model = new GltfModel();
-			await this._model.load(this.runtime.renderer, url);
+			// Built-in models are hand-authored to look correct; never flip them.
+			const isBuiltin = url.startsWith("builtin:");
+			await this._model.load(this.runtime.renderer, url, {
+				flipV: isBuiltin ? false : this._flipV
+			});
 
 			const loadTime = performance.now() - loadStart;
 			const stats = this._model.getStats();
@@ -2930,7 +2967,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			"texAnimSpeedScale": this._texAnimSpeedScale,
 			"texAnimName": this._texAnimName,
 			"texAnimForward": this._texAnimForward,
-			"bboxScale": this._bboxScale
+			"bboxScale": this._bboxScale,
+			"flipV": this._flipV
 		};
 	}
 
@@ -2971,6 +3009,12 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		if ("bboxScale" in data)
 		{
 			this._bboxScale = (data["bboxScale"] as number) ?? 1;
+		}
+
+		// Restore flip V (backward compatible)
+		if ("flipV" in data)
+		{
+			this._flipV = (data["flipV"] as boolean) ?? false;
 		}
 
 		// Reload model after restoring state

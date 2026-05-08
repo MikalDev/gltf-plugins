@@ -71,6 +71,11 @@ C3.Plugins.GltfStatic.Cnds =
 		return this._isBuiltinEnabled();
 	},
 
+	IsFlipV(this: SDKInstanceClass): boolean
+	{
+		return this._isFlipV();
+	},
+
 	// Lighting baking conditions
 	IsLightingBaked(this: SDKInstanceClass): boolean
 	{

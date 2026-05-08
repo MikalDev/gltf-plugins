@@ -19,6 +19,7 @@ const PROP_SCALE = "scale";
 const PROP_USE_BUILTIN = "use-built-in-model";
 const PROP_BUILTIN_TYPE = "built-in-model-type";
 const PROP_BBOX_SCALE = "bbox-scale";
+const PROP_FLIP_V = "flip-v";
 
 // Degrees to radians conversion
 const DEG_TO_RAD = Math.PI / 180;
@@ -1108,8 +1109,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const rotY = (this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0;
 		const rotZ = (this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
+		const flipV = (this._inst.GetPropertyValue(PROP_FLIP_V) as boolean) ? 1 : 0;
 
-		return `${x},${y},${z},${w},${h},${angle},${rotX},${rotY},${rotZ},${scale}`;
+		return `${x},${y},${z},${w},${h},${angle},${rotX},${rotY},${rotZ},${scale},${flipV}`;
 	}
 
 	/**
@@ -1141,6 +1143,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
 		const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
 		const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+
+		// Flip V applies only to glTF models, never to built-in primitives.
+		const flipV = (this._inst.GetPropertyValue(PROP_FLIP_V) as boolean) ?? false;
+		const isBuiltin = this._lastModelUrl.startsWith("builtin:");
+		const applyFlipV = flipV && !isBuiltin;
 
 		for (const mesh of this._model.meshes)
 		{
@@ -1221,10 +1228,21 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				}
 			}
 
+			let outUvs = mesh.uvs;
+			if (applyFlipV)
+			{
+				outUvs = new Float32Array(mesh.uvs.length);
+				for (let k = 0; k < mesh.uvs.length; k += 2)
+				{
+					outUvs[k] = mesh.uvs[k];
+					outUvs[k + 1] = 1 - mesh.uvs[k + 1];
+				}
+			}
+
 			this._transformedMeshes.push({
 				positions: dstPos,
 				normals: dstNormals,
-				uvs: mesh.uvs,
+				uvs: outUvs,
 				indices: mesh.indices,
 				textureIndex: mesh.textureIndex,
 				vertexCount: mesh.vertexCount
@@ -1510,7 +1528,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		// Clear transform cache when any transform property changes
 		// This will force recalculation on next Draw
 		if (id === PROP_ROTATION_X || id === PROP_ROTATION_Y ||
-			id === PROP_ROTATION_Z || id === PROP_SCALE)
+			id === PROP_ROTATION_Z || id === PROP_SCALE ||
+			id === PROP_FLIP_V)
 		{
 			this._lastTransformKey = "";
 

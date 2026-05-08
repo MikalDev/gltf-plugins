@@ -52,6 +52,9 @@ export interface GltfModelOptions {
 	useWorkers?: boolean;
 	/** Number of workers in pool. Default: cores - 1 */
 	workerCount?: number;
+	/** Flip texture V on load (v → 1-v). For glTF assets authored with the
+	 *  opposite V convention from C3's texture upload. Default: false */
+	flipV?: boolean;
 }
 
 // glTF sampler filter constants (WebGL enums)
@@ -1023,6 +1026,14 @@ export class GltfModel {
 		let texCoords: Float32Array | null = null;
 		if (uvArray) {
 			texCoords = new Float32Array(uvArray);
+
+			// Flip V on load for assets authored with opposite V convention.
+			// Per-instance copy above means this doesn't mutate cached source.
+			if (this._options.flipV) {
+				for (let i = 1; i < texCoords.length; i += 2) {
+					texCoords[i] = 1 - texCoords[i];
+				}
+			}
 
 			// Debug: log UV range
 			let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
