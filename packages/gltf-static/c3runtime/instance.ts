@@ -62,7 +62,7 @@ const PROP_SCALE = 5;
 const PROP_USE_BUILTIN = 6;
 const PROP_BUILTIN_TYPE = 7;
 const PROP_BBOX_SCALE = 8;
-const PROP_FLIP_V = 9;
+const PROP_CONVERT_AXES = 9;
 
 // Reusable matrix/vector for transform calculations (avoid per-frame allocations)
 const tempVec = vec3.create();
@@ -125,8 +125,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Physics integration
 	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
 
-	// Flip texture V on load (compensates for glTF assets with opposite V convention)
-	_flipV: boolean = false;
+	// glTF (Y-up, right-handed) → C3 (Y-down) axis conversion
+	_convertAxes: boolean = false;
+
 
 	// Per-light occlusion cache: stores intensity factor and per-ray tags/results.
 	// 5 rays per light: center, top, bottom, left, right.
@@ -181,9 +182,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._builtinModelType = props[PROP_BUILTIN_TYPE] as number;
 			// Bounding box scale
 			this._bboxScale = props[PROP_BBOX_SCALE] as number;
-			// Flip V toggle (for glTF assets with opposite V convention)
-			this._flipV = props[PROP_FLIP_V] as boolean;
-
+			// Axis conversion (glTF Y-up → C3 Y-down)
+			this._convertAxes = props[PROP_CONVERT_AXES] as boolean;
 			debugLog("Properties loaded:", {
 				modelUrl: this._modelUrl,
 				rotationX: this._rotationX,
@@ -284,12 +284,24 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		vec3.set(tempVec, this._scaleX, this._scaleY, this._scaleZ);
 		mat4.scale(this._instanceMatrix, this._instanceMatrix, tempVec);
 
-		// 4. T(-localCenter): shift model so its center is at origin
+		// 4. M_axis: glTF (Y-up) → C3 (Y-down). Skipped for built-ins (already in C3 space).
+		if (this._shouldConvertAxes()) {
+			vec3.set(tempVec, 1, -1, 1);
+			mat4.scale(this._instanceMatrix, this._instanceMatrix, tempVec);
+		}
+
+		// 5. T(-localCenter): shift model so its center is at origin
 		const lc = this._model.localCenter;
 		vec3.set(tempVec, -lc[0], -lc[1], -lc[2]);
 		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		return this._instanceMatrix;
+	}
+
+	/** True when the instance should apply glTF→C3 axis conversion. Built-ins skip. */
+	_shouldConvertAxes(): boolean
+	{
+		return this._convertAxes && !this._useBuiltinModel;
 	}
 
 	/**
@@ -1051,30 +1063,32 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		return this._model?.isLoaded ?? false;
 	}
 
-	// Flip V control methods
-	_isFlipV(): boolean
+	// Axis conversion control methods
+	_isConvertAxes(): boolean
 	{
-		return this._flipV;
+		return this._convertAxes;
 	}
 
-	_getFlipV(): number
+	_getConvertAxes(): number
 	{
-		return this._flipV ? 1 : 0;
+		return this._convertAxes ? 1 : 0;
 	}
 
-	_setFlipV(value: boolean): void
+	_setConvertAxes(value: boolean): void
 	{
-		if (this._flipV === value) return;
-		this._flipV = value;
+		if (this._convertAxes === value) return;
+		this._convertAxes = value;
 
-		// Skip in-place flip for built-ins (their UVs are hand-authored to look correct).
-		// For glTF models, re-flip currently-loaded UVs in place so the change is immediate
-		// without requiring a model reload (preserves animation pose, mesh visibility, etc).
+		// Built-ins skip axis conversion entirely; nothing to update on the GPU side.
+		// The instance matrix is rebuilt every frame, so M_axis change applies on next draw.
 		if (this._useBuiltinModel) return;
 		if (!this._model?.isLoaded) return;
 
+		// Reverse triangle winding in place to match the new M_axis state.
+		// (Toggling axis conversion alone would flip det of the transform; reversing
+		// indices keeps front faces facing forward under back-face culling.)
 		for (const mesh of this._model.meshes) {
-			mesh.flipTexCoordsV();
+			mesh.reverseTriangleWinding();
 		}
 	}
 
@@ -1661,10 +1675,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		try
 		{
 			this._model = new GltfModel();
-			// Built-in models are hand-authored to look correct; never flip them.
+			// Built-in models are hand-authored in C3 space; never reverse winding for them.
 			const isBuiltin = url.startsWith("builtin:");
 			await this._model.load(this.runtime.renderer, url, {
-				flipV: isBuiltin ? false : this._flipV
+				convertAxes: isBuiltin ? false : this._convertAxes
 			});
 
 			const loadTime = performance.now() - loadStart;
@@ -2378,7 +2392,13 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		vec3.set(tempVec, this._scaleX, this._scaleY, this._scaleZ);
 		mat4.scale(objectMatrix, objectMatrix, tempVec);
 
-		// 4. T(-localCenter)
+		// 4. M_axis: match the same Y-flip applied in _buildInstanceMatrix
+		if (this._shouldConvertAxes()) {
+			vec3.set(tempVec, 1, -1, 1);
+			mat4.scale(objectMatrix, objectMatrix, tempVec);
+		}
+
+		// 5. T(-localCenter)
 		const lc = this._model!.localCenter;
 		vec3.set(tempVec, -lc[0], -lc[1], -lc[2]);
 		mat4.translate(objectMatrix, objectMatrix, tempVec);
@@ -2444,9 +2464,27 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		mat4.fromQuat(rotMat, this._rotationQuat);
 		mat4.multiply(objectMatrix, objectMatrix, rotMat);
 
+		// When axis conversion is on, the bone matrix is in glTF frame but our object
+		// rotation operates in C3 frame (Rquat sits to the left of M_axis in the
+		// instance matrix). Conjugate the bone matrix by F = scale(1,-1,1) to express
+		// its rotation in C3 axes: R_C3 = F * R_glTF * F. F is involutory so det stays +1.
+		let workingBone = boneMatrix;
+		if (this._shouldConvertAxes())
+		{
+			workingBone = new Float32Array(boneMatrix);
+			// F * M * F on a column-major mat4 negates these six entries (M[5] is in
+			// row 1 AND col 1 so double-negated → unchanged).
+			workingBone[1] = -workingBone[1];
+			workingBone[4] = -workingBone[4];
+			workingBone[6] = -workingBone[6];
+			workingBone[7] = -workingBone[7];
+			workingBone[9] = -workingBone[9];
+			workingBone[13] = -workingBone[13];
+		}
+
 		// Combine: objectRotation * boneMatrix
 		const combined = mat4.create();
-		mat4.multiply(combined, objectMatrix, boneMatrix);
+		mat4.multiply(combined, objectMatrix, workingBone);
 
 		// Extract euler angles from rotation matrix (XYZ order)
 		// Using standard rotation matrix decomposition for column-major mat4
@@ -2968,7 +3006,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			"texAnimName": this._texAnimName,
 			"texAnimForward": this._texAnimForward,
 			"bboxScale": this._bboxScale,
-			"flipV": this._flipV
+			"convertAxes": this._convertAxes
 		};
 	}
 
@@ -3011,10 +3049,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			this._bboxScale = (data["bboxScale"] as number) ?? 1;
 		}
 
-		// Restore flip V (backward compatible)
-		if ("flipV" in data)
+		// Restore axis conversion. Default false for projects saved before this feature
+		// existed, so legacy projects don't shift visually on load.
+		if ("convertAxes" in data)
 		{
-			this._flipV = (data["flipV"] as boolean) ?? false;
+			this._convertAxes = (data["convertAxes"] as boolean) ?? false;
+		}
+		else
+		{
+			this._convertAxes = false;
 		}
 
 		// Reload model after restoring state

@@ -52,9 +52,10 @@ export interface GltfModelOptions {
 	useWorkers?: boolean;
 	/** Number of workers in pool. Default: cores - 1 */
 	workerCount?: number;
-	/** Flip texture V on load (v → 1-v). For glTF assets authored with the
-	 *  opposite V convention from C3's texture upload. Default: false */
-	flipV?: boolean;
+	/** Convert glTF axes (Y-up, right-handed) to C3 axes (Y-down). When true,
+	 *  triangle winding is reversed at load to compensate for the implicit
+	 *  Y-flip in the instance matrix. Default: false */
+	convertAxes?: boolean;
 }
 
 // glTF sampler filter constants (WebGL enums)
@@ -1027,14 +1028,6 @@ export class GltfModel {
 		if (uvArray) {
 			texCoords = new Float32Array(uvArray);
 
-			// Flip V on load for assets authored with opposite V convention.
-			// Per-instance copy above means this doesn't mutate cached source.
-			if (this._options.flipV) {
-				for (let i = 1; i < texCoords.length; i += 2) {
-					texCoords[i] = 1 - texCoords[i];
-				}
-			}
-
 			// Debug: log UV range
 			let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
 			for (let i = 0; i < texCoords.length; i += 2) {
@@ -1067,6 +1060,22 @@ export class GltfModel {
 			indices = new Uint16Array(indicesArray);
 		} else {
 			indices = new Uint16Array(indicesArray);
+		}
+
+		// Axis conversion (glTF Y-up → C3 Y-down) flips handedness via Y-negation
+		// in the instance matrix; that reverses triangle winding from front to back.
+		// Pre-swap two indices per triangle here so back-face culling still kills back faces.
+		// Copy first to avoid mutating cached source data.
+		if (this._options.convertAxes) {
+			const reversed = indices instanceof Uint16Array
+				? new Uint16Array(indices.length)
+				: new Uint32Array(indices.length);
+			for (let i = 0; i < indices.length; i += 3) {
+				reversed[i] = indices[i];
+				reversed[i + 1] = indices[i + 2];
+				reversed[i + 2] = indices[i + 1];
+			}
+			indices = reversed;
 		}
 
 		const vertexCount = positions.length / 3;

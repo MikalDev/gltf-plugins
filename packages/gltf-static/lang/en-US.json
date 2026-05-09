@@ -64,9 +64,9 @@
 						"name": "BBox Scale",
 						"desc": "Scale factor for the bounding box (1 = actual model size)."
 					},
-					"flip-v": {
-						"name": "Flip V",
-						"desc": "Flip texture V coordinate on load. Enable for glTF models authored with the opposite V convention (textures appear upside-down or mirrored). Has no effect on built-in primitives."
+					"convert-axes": {
+						"name": "Convert Axes",
+						"desc": "Convert glTF axes (Y-up, right-handed) to C3 axes (Y-down). Recommended for standard glTF models. Disable to load the model in raw glTF orientation. Has no effect on built-in primitives."
 					}
 				},
 				"aceCategories": {
@@ -196,10 +196,10 @@
 						"display-text": "{my} built-in model is enabled",
 						"description": "True if this instance is using a built-in primitive model."
 					},
-					"is-flip-v": {
-						"list-name": "Is flip V",
-						"display-text": "{my} flip V is enabled",
-						"description": "True if texture V is flipped for this instance."
+					"is-convert-axes": {
+						"list-name": "Is convert axes",
+						"display-text": "{my} convert axes is enabled",
+						"description": "True if glTF→C3 axis conversion is enabled for this instance."
 					},
 					"is-texture-anim-playing": {
 						"list-name": "Is texture animation playing",
@@ -631,14 +631,14 @@
 							}
 						}
 					},
-					"set-flip-v": {
-						"list-name": "Set flip V",
-						"display-text": "{my} set flip V [b]{0}[/b]",
-						"description": "Enable or disable flipping texture V on the currently-loaded model. Use for glTF assets authored with the opposite V convention. Has no effect on built-in primitives.",
+					"set-convert-axes": {
+						"list-name": "Set convert axes",
+						"display-text": "{my} set convert axes [b]{0}[/b]",
+						"description": "Enable or disable glTF→C3 axis conversion (Y-up to Y-down). Has no effect on built-in primitives.",
 						"params": {
 							"enabled": {
 								"name": "Enabled",
-								"desc": "Whether to flip the V coordinate.",
+								"desc": "Whether to convert axes.",
 								"items": {
 									"disabled": "Disabled",
 									"enabled": "Enabled"
@@ -817,9 +817,9 @@
 						"description": "Get the current built-in model type name (cube, sphere, capsule, cylinder, cone, ramp, plane), or empty string if not using a built-in.",
 						"translated-name": "BuiltinModelType"
 					},
-					"flip-v": {
-						"description": "Returns 1 if texture V is flipped, 0 otherwise.",
-						"translated-name": "FlipV"
+					"convert-axes": {
+						"description": "Returns 1 if glTF→C3 axis conversion is enabled, 0 otherwise.",
+						"translated-name": "ConvertAxes"
 					},
 					"animation-time": {
 						"description": "Get the current animation playback time in seconds.",

@@ -19,7 +19,7 @@ const PROP_SCALE = "scale";
 const PROP_USE_BUILTIN = "use-built-in-model";
 const PROP_BUILTIN_TYPE = "built-in-model-type";
 const PROP_BBOX_SCALE = "bbox-scale";
-const PROP_FLIP_V = "flip-v";
+const PROP_CONVERT_AXES = "convert-axes";
 
 // Degrees to radians conversion
 const DEG_TO_RAD = Math.PI / 180;
@@ -1109,9 +1109,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const rotY = (this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0;
 		const rotZ = (this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
-		const flipV = (this._inst.GetPropertyValue(PROP_FLIP_V) as boolean) ? 1 : 0;
+		const convertAxes = (this._inst.GetPropertyValue(PROP_CONVERT_AXES) as boolean) ? 1 : 0;
 
-		return `${x},${y},${z},${w},${h},${angle},${rotX},${rotY},${rotZ},${scale},${flipV}`;
+		return `${x},${y},${z},${w},${h},${angle},${rotX},${rotY},${rotZ},${scale},${convertAxes}`;
 	}
 
 	/**
@@ -1138,16 +1138,16 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 
 		// Build 4x4 transform matrix
-		// Order: Scale -> 3D Rotations -> 2D Angle -> Translation
+		// Order: Scale -> Axis Convert -> 3D Rotations -> 2D Angle -> Translation
 		const cosA = Math.cos(angle), sinA = Math.sin(angle);
 		const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
 		const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
 		const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
 
-		// Flip V applies only to glTF models, never to built-in primitives.
-		const flipV = (this._inst.GetPropertyValue(PROP_FLIP_V) as boolean) ?? false;
+		// Axis conversion (glTF Y-up → C3 Y-down) applies to glTF models only.
+		const convertAxes = (this._inst.GetPropertyValue(PROP_CONVERT_AXES) as boolean) ?? false;
 		const isBuiltin = this._lastModelUrl.startsWith("builtin:");
-		const applyFlipV = flipV && !isBuiltin;
+		const applyConvertAxes = convertAxes && !isBuiltin;
 
 		for (const mesh of this._model.meshes)
 		{
@@ -1163,8 +1163,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				let py = srcPos[idx + 1] * scale;
 				let pz = srcPos[idx + 2] * scale;
 
+				// Axis conversion (Y-flip) sits between scale and rotation chain,
+				// matching runtime: T * Rangle * Rx * Ry * Rz * M_axis * S
+				if (applyConvertAxes) py = -py;
+
 				// Apply rotations in reverse order to match runtime matrix multiplication
-				// Runtime does: T * Rangle * Rx * Ry * Rz * S
 				// So we apply: Z first, then Y, then X, then angle
 
 				// Rotate around Z axis (3D rotation property)
@@ -1199,6 +1202,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 					let ny = srcNormals[idx + 1];
 					let nz = srcNormals[idx + 2];
 
+					// Same Y-flip applies to normals (matrix's upper-left 3x3)
+					if (applyConvertAxes) ny = -ny;
+
 					// Apply same rotations as positions
 
 					// Rotate around Z axis
@@ -1228,22 +1234,24 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				}
 			}
 
-			let outUvs = mesh.uvs;
-			if (applyFlipV)
+			// Reverse triangle winding to compensate for Y-flip's determinant -1
+			let outIndices = mesh.indices;
+			if (applyConvertAxes)
 			{
-				outUvs = new Float32Array(mesh.uvs.length);
-				for (let k = 0; k < mesh.uvs.length; k += 2)
+				outIndices = new Uint16Array(mesh.indices.length);
+				for (let i = 0; i < mesh.indices.length; i += 3)
 				{
-					outUvs[k] = mesh.uvs[k];
-					outUvs[k + 1] = 1 - mesh.uvs[k + 1];
+					outIndices[i] = mesh.indices[i];
+					outIndices[i + 1] = mesh.indices[i + 2];
+					outIndices[i + 2] = mesh.indices[i + 1];
 				}
 			}
 
 			this._transformedMeshes.push({
 				positions: dstPos,
 				normals: dstNormals,
-				uvs: outUvs,
-				indices: mesh.indices,
+				uvs: mesh.uvs,
+				indices: outIndices,
 				textureIndex: mesh.textureIndex,
 				vertexCount: mesh.vertexCount
 			});
@@ -1529,7 +1537,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		// This will force recalculation on next Draw
 		if (id === PROP_ROTATION_X || id === PROP_ROTATION_Y ||
 			id === PROP_ROTATION_Z || id === PROP_SCALE ||
-			id === PROP_FLIP_V)
+			id === PROP_CONVERT_AXES)
 		{
 			this._lastTransformKey = "";
 

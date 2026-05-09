@@ -167,9 +167,9 @@ C3.Plugins.GltfStatic.Acts =
 		this._setBBoxScale(scale);
 	},
 
-	SetFlipV(this: SDKInstanceClass, enabled: number): void
+	SetConvertAxes(this: SDKInstanceClass, enabled: number): void
 	{
-		this._setFlipV(enabled !== 0);
+		this._setConvertAxes(enabled !== 0);
 	},
 
 	SetShadowRayCount(this: SDKInstanceClass, mode: number): void

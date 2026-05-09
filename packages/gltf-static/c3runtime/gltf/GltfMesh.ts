@@ -1001,24 +1001,20 @@ export class GltfMesh {
 	}
 
 	/**
-	 * Flip the V coordinate of every UV in place (v → 1 - v).
-	 * Used to compensate for glTF assets authored with the opposite V convention
-	 * from C3's texture upload. Mutates both the GPU buffer and the stored
-	 * originals so subsequent atlas remapping uses the flipped baseline.
+	 * Swap two indices in every triangle (i+1 ↔ i+2) to reverse winding.
+	 * Used when axis-conversion is toggled at runtime: a Y-flip in the instance
+	 * matrix has determinant −1, so triangles wound CCW in source become CW in clip
+	 * space; swapping per-triangle indices keeps front faces facing forward.
 	 */
-	flipTexCoordsV(): void {
+	reverseTriangleWinding(): void {
 		if (!this._meshData) return;
-		const uvs = this._meshData.texCoords;
-		for (let i = 0; i < this._vertexCount; i++) {
-			uvs[i * 2 + 1] = 1 - uvs[i * 2 + 1];
+		const indices = this._meshData.indices;
+		for (let i = 0; i < indices.length; i += 3) {
+			const tmp = indices[i + 1];
+			indices[i + 1] = indices[i + 2];
+			indices[i + 2] = tmp;
 		}
-		if (this._originalTexCoords) {
-			const orig = this._originalTexCoords;
-			for (let i = 0; i < this._vertexCount; i++) {
-				orig[i * 2 + 1] = 1 - orig[i * 2 + 1];
-			}
-		}
-		this._meshData.markDataChanged("texCoords", 0, this._vertexCount);
+		this._meshData.markIndexDataChanged();
 	}
 
 	/**

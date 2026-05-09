@@ -56,8 +56,8 @@
 				"highlight": false
 			},
 			{
-				"id": "is-flip-v",
-				"scriptName": "IsFlipV",
+				"id": "is-convert-axes",
+				"scriptName": "IsConvertAxes",
 				"highlight": false
 			}
 		],
@@ -307,8 +307,8 @@
 				]
 			},
 			{
-				"id": "set-flip-v",
-				"scriptName": "SetFlipV",
+				"id": "set-convert-axes",
+				"scriptName": "SetConvertAxes",
 				"highlight": false,
 				"params": [
 					{
@@ -425,8 +425,8 @@
 				"returnType": "string"
 			},
 			{
-				"id": "flip-v",
-				"expressionName": "FlipV",
+				"id": "convert-axes",
+				"expressionName": "ConvertAxes",
 				"returnType": "number"
 			}
 		]

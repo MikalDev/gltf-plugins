@@ -68,9 +68,9 @@ C3.Plugins.GltfStatic.Exps =
 		return this._getBuiltinModelType();
 	},
 
-	FlipV(this: SDKInstanceClass): number
+	ConvertAxes(this: SDKInstanceClass): number
 	{
-		return this._getFlipV();
+		return this._getConvertAxes();
 	},
 
 	// Animation expressions
