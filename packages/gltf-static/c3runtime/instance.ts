@@ -125,6 +125,18 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Physics integration
 	_bboxScale: number = 1;                // Scale factor for bounding box (for physics shape sizing)
 
+	// World-space AABB extents *relative to instance position* — post-scale,
+	// post-rotation, post-bboxScale. Populated by _recomputeWorldExtents(),
+	// consumed by _pushAabbToWorldInfo().
+	_worldBBoxMin: [number, number, number] = [0, 0, 0];
+	_worldBBoxMax: [number, number, number] = [0, 0, 0];
+
+	// V2 SDK has no setOriginZ, so C3's bbox always spans [totalZ, totalZ+depth].
+	// We compensate by shifting the raw z by _zCullShift (= lo[2]) so the back
+	// face of the bbox lands on the true back of the model. The z/totalZ
+	// accessor overrides hide this shift from user scripts.
+	_zCullShift: number = 0;
+
 	// glTF (Y-up, right-handed) → C3 (Y-down) axis conversion
 	_convertAxes: boolean = false;
 
@@ -826,13 +838,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		SharedWorkerPool.flushIfPending();
 
-		// Force bounds update while off-screen to keep C3's render state primed
-		// The depth epsilon in _updateInstanceBounds() ensures C3 sees it as "changed"
+		// Re-push bbox state every tick so changes to scale/rotation/bboxScale show up
+		// (those callers also push directly, but tick is a safety net for anything that
+		// mutates internal state without going through our setters).
 		if (this._model?.isLoaded) {
-			const onScreen = (this as any).isOnScreen?.();
-			if (!onScreen) {
-				this._updateInstanceBounds();
-			}
+			this._pushAabbToWorldInfo();
 		}
 	}
 
@@ -1090,6 +1100,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		for (const mesh of this._model.meshes) {
 			mesh.reverseTriangleWinding();
 		}
+
+		// Y-flip changes which corner of the model bbox lands where in world space,
+		// so the AABB push must be recomputed.
+		this._updateInstanceBounds();
 	}
 
 	// Worker control methods
@@ -2130,18 +2144,16 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	}
 
 	/**
-	 * Update the C3 instance bounds (depth) from the model's rotated bounding box.
-	 * This enables proper 3D frustum culling by C3's engine.
-	 * Called automatically when model loads, scale changes, or rotation changes.
+	 * Recompute world-space AABB extents from the model bbox, scale, rotation, and bboxScale.
+	 * Stores instance-relative results in _worldBBoxMin/Max. Does NOT push to C3.
 	 */
-	_updateInstanceBounds(): void
+	_recomputeWorldExtents(): void
 	{
 		if (!this._model?.isLoaded) return;
 
 		const min = this._model.boundingBoxMin;
 		const max = this._model.boundingBoxMax;
 
-		// Get the 8 corners of the bounding box
 		const corners = [
 			[min[0], min[1], min[2]],
 			[min[0], min[1], max[2]],
@@ -2153,7 +2165,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			[max[0], max[1], max[2]]
 		];
 
-		// Compute world-space AABB by transforming corners with scale and rotation
 		let worldMinX = Infinity, worldMaxX = -Infinity;
 		let worldMinY = Infinity, worldMaxY = -Infinity;
 		let worldMinZ = Infinity, worldMaxZ = -Infinity;
@@ -2163,11 +2174,21 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		const qz = this._rotationQuat[2];
 		const qw = this._rotationQuat[3];
 
+		// Mirror the per-vertex transform in _buildInstanceMatrix: Rq * S * F * T(-lc) * v.
+		// (Layout Z-angle Rz is intentionally omitted — gltf-static instances rarely use it.)
+		const lc = this._model.localCenter;
+		const flipY = this._shouldConvertAxes() ? -1 : 1;
+
 		for (const corner of corners) {
-			// Apply scale
-			const sx = corner[0] * this._scaleX;
-			const sy = corner[1] * this._scaleY;
-			const sz = corner[2] * this._scaleZ;
+			// T(-lc) then F (Y-flip when converting glTF Y-up → C3 Y-down)
+			const cx = corner[0] - lc[0];
+			const cy = (corner[1] - lc[1]) * flipY;
+			const cz = corner[2] - lc[2];
+
+			// S: per-axis scale
+			const sx = cx * this._scaleX;
+			const sy = cy * this._scaleY;
+			const sz = cz * this._scaleZ;
 
 			// Rotate by quaternion: v' = q * v * q^-1
 			const ix = qw * sx + qy * sz - qz * sy;
@@ -2179,7 +2200,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			const ry = iy * qw + iw * -qy + iz * -qx - ix * -qz;
 			const rz = iz * qw + iw * -qz + ix * -qy - iy * -qx;
 
-			// Track min/max for all axes
 			if (rx < worldMinX) worldMinX = rx;
 			if (rx > worldMaxX) worldMaxX = rx;
 			if (ry < worldMinY) worldMinY = ry;
@@ -2188,15 +2208,86 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			if (rz > worldMaxZ) worldMaxZ = rz;
 		}
 
-		// Set C3 instance bounds for proper frustum culling (apply bbox scale factor)
-		// Note: Tiny random epsilon on depth forces C3's setter to see it as "changed" each call.
-		// Without this, C3's internal dirty check no-ops when value is unchanged, causing
-		// models to not render when returning to screen after being off-screen.
-		(this as any).width = (worldMaxX - worldMinX) * this._bboxScale;
-		(this as any).height = (worldMaxY - worldMinY) * this._bboxScale;
-		(this as any).depth = (worldMaxZ - worldMinZ) * this._bboxScale + Math.random() * 0.0000001;
-		// Notify C3 that bounds changed so it re-evaluates frustum culling
-		(this as any).GetWorldInfo?.()?.SetBboxChanged?.();
+		const bs = this._bboxScale;
+		this._worldBBoxMin[0] = worldMinX * bs;
+		this._worldBBoxMin[1] = worldMinY * bs;
+		this._worldBBoxMin[2] = worldMinZ * bs;
+		this._worldBBoxMax[0] = worldMaxX * bs;
+		this._worldBBoxMax[1] = worldMaxY * bs;
+		this._worldBBoxMax[2] = worldMaxZ * bs;
+	}
+
+	// Hide the cull-shift from user scripts: public z/totalZ/getPosition3d
+	// return the user-set value; setters re-apply the shift. Behaviors that
+	// reach WorldInfo directly (bypassing the script interface) still see the
+	// shifted raw value — fine, the shift is constant per tick.
+	//
+	// IWorldInstance's z/totalZ are declared as fields in the .d.ts but are real
+	// accessors at runtime (verified via prototype probe). TS won't compile
+	// `super.z` against a field, hence the ts-expect-error pragmas.
+	// @ts-expect-error overriding inherited field-typed accessor
+	get z(): number {
+		// @ts-expect-error runtime accessor on proto chain
+		return super.z - this._zCullShift;
+	}
+	set z(v: number) {
+		// @ts-expect-error runtime accessor on proto chain
+		super.z = v + this._zCullShift;
+	}
+
+	// @ts-expect-error overriding inherited field-typed accessor
+	get totalZ(): number {
+		// @ts-expect-error runtime accessor on proto chain
+		return super.totalZ - this._zCullShift;
+	}
+
+	setPosition3d(x: number, y: number, z: number): void {
+		super.setPosition3d(x, y, z + this._zCullShift);
+	}
+
+	getPosition3d(): Vec3Arr {
+		const p = super.getPosition3d();
+		return [p[0], p[1], p[2] - this._zCullShift];
+	}
+
+	/**
+	 * Push the cached world AABB to C3 via public V2 SDK setters.
+	 *
+	 * X/Y: tight, rotation-aware via setSize3d + setOrigin.
+	 * Z:   V2 has no setOriginZ, so C3 always uses [totalZ, totalZ+depth]. We
+	 *      shift the raw z by lo[2] so the back face lines up with the true
+	 *      model back. The z/totalZ accessor overrides hide this from user
+	 *      scripts; the setter inside this method bypasses through the same
+	 *      override and naturally writes the shifted raw value.
+	 */
+	_pushAabbToWorldInfo(): void
+	{
+		const self = this as any;
+		const lo = this._worldBBoxMin, hi = this._worldBBoxMax;
+		const w = hi[0] - lo[0];
+		const h = hi[1] - lo[1];
+		const d = hi[2] - lo[2];
+		if (w <= 0 || h <= 0 || d <= 0) return;  // not loaded / degenerate
+
+		self.setSize3d(w, h, d);
+		self.setOrigin(-lo[0] / w, -lo[1] / h);
+
+		const delta = lo[2] - this._zCullShift;
+		if (delta !== 0) {
+			self.z = self.z + delta;
+			this._zCullShift = lo[2];
+		}
+	}
+
+	/**
+	 * Recompute extents and push to C3. Call on rotation/scale/bboxScale/model-load.
+	 * Position-only changes don't need this — the per-tick push in _tick2 handles them.
+	 */
+	_updateInstanceBounds(): void
+	{
+		if (!this._model?.isLoaded) return;
+		this._recomputeWorldExtents();
+		this._pushAabbToWorldInfo();
 	}
 
 	/**
@@ -2234,7 +2325,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		];
 	}
 
-	/**
+/**
 	 * Get the bounding box as min/max coordinates in model space.
 	 * @returns { min: [x, y, z], max: [x, y, z] } or null if model not loaded
 	 */
