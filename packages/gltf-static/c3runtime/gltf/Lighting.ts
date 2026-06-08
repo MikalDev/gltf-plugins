@@ -106,7 +106,7 @@ if (!globalThis.gltfLights) {
 	globalThis.gltfLights = [];
 	globalThis.gltfSpotLights = [];
 	globalThis.gltfLightIdCounter = 0;
-	globalThis.gltfAmbientLight = new Float32Array([0.2, 0.2, 0.2]);
+	globalThis.gltfAmbientLight = new Float32Array([1.0, 1.0, 1.0]);
 	globalThis.gltfLightingVersion = 0;
 }
 

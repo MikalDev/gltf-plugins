@@ -97,6 +97,16 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	// Instance TRS matrix for CPU-side vertex transformation
 	_instanceMatrix: Float32Array = mat4.create() as unknown as Float32Array;
 
+	// Cached TRS inputs from last transform push. NaN forces first push.
+	_lastTickX: number = NaN;
+	_lastTickY: number = NaN;
+	_lastTickZ: number = NaN;
+	_lastTickAngle: number = NaN;
+	_lastTickScaleX: number = NaN;
+	_lastTickScaleY: number = NaN;
+	_lastTickScaleZ: number = NaN;
+	_lastTickQuat: Float32Array = new Float32Array([NaN, NaN, NaN, NaN]);
+
 	// glTF model
 	_model: GltfModelType | null = null;
 	_isLoading: boolean = false;
@@ -314,6 +324,41 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_shouldConvertAxes(): boolean
 	{
 		return this._convertAxes && !this._useBuiltinModel;
+	}
+
+	_transformFieldsChanged(): boolean
+	{
+		const q = this._rotationQuat, lq = this._lastTickQuat;
+		return this.x !== this._lastTickX
+			|| this.y !== this._lastTickY
+			|| this.totalZ !== this._lastTickZ
+			|| this.angle !== this._lastTickAngle
+			|| this._scaleX !== this._lastTickScaleX
+			|| this._scaleY !== this._lastTickScaleY
+			|| this._scaleZ !== this._lastTickScaleZ
+			|| q[0] !== lq[0] || q[1] !== lq[1] || q[2] !== lq[2] || q[3] !== lq[3];
+	}
+
+	_cacheTransformFields(): void
+	{
+		this._lastTickX = this.x;
+		this._lastTickY = this.y;
+		this._lastTickZ = this.totalZ;
+		this._lastTickAngle = this.angle;
+		this._lastTickScaleX = this._scaleX;
+		this._lastTickScaleY = this._scaleY;
+		this._lastTickScaleZ = this._scaleZ;
+		const q = this._rotationQuat, lq = this._lastTickQuat;
+		lq[0] = q[0]; lq[1] = q[1]; lq[2] = q[2]; lq[3] = q[3];
+	}
+
+	_pushTransformIfChanged(): void
+	{
+		if (!this._model?.isLoaded) return;
+		if (!this._transformFieldsChanged()) return;
+		this._buildInstanceMatrix();
+		this._model.updateTransformSync(this._instanceMatrix);
+		this._cacheTransformFields();
 	}
 
 	/**
@@ -836,13 +881,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_tick2(): void
 	{
-		// Push instance transform every frame so position tracks behaviors (Bullet/Tween/etc.)
-		// even when _tick() is gated by frameskip/distance-LOD. updateTransformSync has its
-		// own matrix-dirty check, so stationary instances cost only a mat4 rebuild.
-		if (this._model?.isLoaded) {
-			this._buildInstanceMatrix();
-			this._model.updateTransformSync(this._instanceMatrix);
-		}
+		// Push instance transform after all behaviors/scripts have moved the instance this frame.
+		// Runs every frame (not gated by frameskip) so position tracks Bullet/Tween/script motion
+		// even when animation/skinning is frame-skipped. Cheap TRS-field compare gates the work.
+		this._pushTransformIfChanged();
 
 		SharedWorkerPool.flushIfPending();
 
