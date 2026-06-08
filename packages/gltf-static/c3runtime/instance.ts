@@ -1345,23 +1345,19 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (!this._model || this._animationController) return;
 
-		// Need animations to create controller
-		if (this._model.animations.length === 0)
-		{
-			modelLoadLog("Model has no animations, skipping animation controller");
-			return;
-		}
-
 		const meshes = this._model.meshes;
 		if (!meshes || meshes.length === 0) return;
 
-		// Check if model has morph targets (morph-only models don't need skinning)
+		const hasAnimations = this._model.animations.length > 0;
+		const hasSkinning = this._model.hasSkinning;
 		const hasMorphTargets = meshes.some(m => m.hasMorphTargets);
 
-		// Need either skinning or morph targets for animation
-		if (!this._model.hasSkinning && !hasMorphTargets)
+		// Create the controller if the model has any animatable feature.
+		// "skin, no clips" still needs it so bind-pose bone matrices reach the worker;
+		// without it, skinned meshes fall through the static-mesh path which excludes them.
+		if (!hasAnimations && !hasSkinning && !hasMorphTargets)
 		{
-			modelLoadLog("Model has no skinning data or morph targets, skipping animation controller");
+			modelLoadLog("Model has no animations, skinning, or morph targets; skipping animation controller");
 			return;
 		}
 
