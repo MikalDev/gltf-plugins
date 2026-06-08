@@ -836,6 +836,14 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_tick2(): void
 	{
+		// Push instance transform every frame so position tracks behaviors (Bullet/Tween/etc.)
+		// even when _tick() is gated by frameskip/distance-LOD. updateTransformSync has its
+		// own matrix-dirty check, so stationary instances cost only a mat4 rebuild.
+		if (this._model?.isLoaded) {
+			this._buildInstanceMatrix();
+			this._model.updateTransformSync(this._instanceMatrix);
+		}
+
 		SharedWorkerPool.flushIfPending();
 
 		// Re-push bbox state every tick so changes to scale/rotation/bboxScale show up
