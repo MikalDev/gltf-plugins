@@ -29,6 +29,7 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 		this._info.AddC3RuntimeScript("c3runtime/gltf-bundle.js");
 		this._info.AddCommonPositionACEs();
 		this._info.AddCommonSceneGraphACEs();
+		this._info.AddCommonZOrderACEs();
 
 		SDK.Lang.PushContext(".properties");
 
