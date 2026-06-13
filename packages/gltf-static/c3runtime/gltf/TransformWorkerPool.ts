@@ -473,7 +473,7 @@ self.onmessage = (e) => {
 			}
 
 			if (meshEntries.length === 0) {
-				self.postMessage({ type: "SKIN_RESULTS", meshIds: new Uint32Array(0), offsets: new Uint32Array(1), positions: new Float32Array(0), normals: null, colors: null }, []);
+				self.postMessage({ type: "SKIN_RESULTS", meshIds: new Uint32Array(0), offsets: new Uint32Array(1), positions: new Float32Array(0), normals: null, colors: null, anchorMatrix: msg.anchorMatrix ?? null }, []);
 				break;
 			}
 
@@ -517,7 +517,7 @@ self.onmessage = (e) => {
 			if (packedColors) transferList.push(packedColors.buffer);
 
 			self.postMessage(
-				{ type: "SKIN_RESULTS", meshIds, offsets, positions: packedPositions, normals: packedNormals, colors: packedColors },
+				{ type: "SKIN_RESULTS", meshIds, offsets, positions: packedPositions, normals: packedNormals, colors: packedColors, anchorMatrix: msg.anchorMatrix ?? null },
 				transferList
 			);
 			break;
@@ -624,7 +624,7 @@ self.onmessage = (e) => {
 `;
 
 type TransformCallback = (positions: Float32Array) => void;
-type SkinningCallback = (positions: Float32Array, normals: Float32Array | null, colors: Float32Array | null) => void;
+type SkinningCallback = (positions: Float32Array, normals: Float32Array | null, colors: Float32Array | null, anchorMatrix: Float32Array | null) => void;
 type StaticTransformCallback = (positions: Float32Array, colors: Float32Array | null) => void;
 
 /** Light configuration for worker-based lighting calculation */
@@ -691,6 +691,9 @@ interface PendingSkinRequest {
 	meshIds: number[];
 	boneMatrices: Float32Array;
 	lightConfig?: WorkerLightConfig;
+	// Instance matrix baked into boneMatrices; echoed back by the worker so the
+	// result carries its own anchor (no request/response order bookkeeping).
+	anchorMatrix: Float32Array | null;
 }
 
 interface PendingStaticTransformRequest {
@@ -703,6 +706,7 @@ interface PendingResult {
 	positions: Float32Array | null;
 	normals: Float32Array | null;
 	colors: Float32Array | null;
+	anchorMatrix: Float32Array | null;
 	isSkinning: boolean;
 	isStaticTransform: boolean;
 }
@@ -739,7 +743,12 @@ export class TransformWorkerPool {
 		for (let i = 0; i < this._workerCount; i++) {
 			const worker = new Worker(this._workerBlobUrl);
 			worker.onmessage = (e) => this._handleMessage(e.data);
-			worker.onerror = (e) => console.error("[TransformWorkerPool] Worker error:", e);
+			worker.onerror = (e) => {
+				console.error("[TransformWorkerPool] Worker error:", e);
+				// An uncaught worker exception means its reply never arrives —
+				// account for it so flush() doesn't await forever
+				if (this._pendingResponses > 0) this._checkFlushComplete();
+			};
 			this._workers.push(worker);
 			this._pendingByWorker.set(i, []);
 			this._pendingSkinByWorker.set(i, []);
@@ -870,9 +879,12 @@ export class TransformWorkerPool {
 	 * @param boneMatrices Bone matrices (16 floats per joint, flattened)
 	 * @param lightConfig Optional lighting configuration to compute vertex colors in worker
 	 */
-	queueSkinning(meshIds: number[], boneMatrices: Float32Array, lightConfig?: WorkerLightConfig): void {
+	queueSkinning(meshIds: number[], boneMatrices: Float32Array, lightConfig?: WorkerLightConfig, anchorMatrix?: Float32Array): void {
 		if (this._disposed) return;
 		if (meshIds.length === 0) return;
+
+		// Copy: the caller rebuilds its instance matrix in place
+		const anchorCopy = anchorMatrix ? new Float32Array(anchorMatrix) : null;
 
 		// Group meshes by worker
 		const byWorker = new Map<number, number[]>();
@@ -895,7 +907,8 @@ export class TransformWorkerPool {
 			this._pendingSkinByWorker.get(workerIndex)!.push({
 				meshIds: workerMeshIds,
 				boneMatrices: new Float32Array(boneMatrices), // Copy to avoid caller reuse issues
-				lightConfig
+				lightConfig,
+				anchorMatrix: anchorCopy
 			});
 		}
 	}
@@ -980,7 +993,8 @@ export class TransformWorkerPool {
 					type: "SKIN_BATCH",
 					meshIds: skinReq.meshIds,
 					boneMatrices: skinReq.boneMatrices,
-					lightConfig: skinReq.lightConfig
+					lightConfig: skinReq.lightConfig,
+					anchorMatrix: skinReq.anchorMatrix
 				});
 			}
 			this._pendingSkinByWorker.set(i, []); // Clear pending
@@ -1014,6 +1028,7 @@ export class TransformWorkerPool {
 		positions?: Float32Array;
 		normals?: Float32Array | null;
 		colors?: Float32Array | null;
+		anchorMatrix?: Float32Array | null;
 	}): void {
 		const isTransformResult = msg.type === "TRANSFORM_RESULTS";
 		const isSkinResult = msg.type === "SKIN_RESULTS";
@@ -1027,6 +1042,7 @@ export class TransformWorkerPool {
 				positions: msg.positions,
 				normals: msg.normals ?? null,
 				colors: msg.colors ?? null,
+				anchorMatrix: msg.anchorMatrix ?? null,
 				isSkinning: isSkinResult,
 				isStaticTransform: false
 			});
@@ -1040,6 +1056,7 @@ export class TransformWorkerPool {
 				positions: msg.positions,
 				normals: null,
 				colors: msg.colors ?? null,
+				anchorMatrix: null,
 				isSkinning: false,
 				isStaticTransform: true
 			});
@@ -1069,7 +1086,7 @@ export class TransformWorkerPool {
 	 */
 	private _invokeAllCallbacks(): void {
 		for (const result of this._pendingResults) {
-			const { meshIds, offsets, positions, normals, colors, isSkinning, isStaticTransform } = result;
+			const { meshIds, offsets, positions, normals, colors, anchorMatrix, isSkinning, isStaticTransform } = result;
 
 			if (isStaticTransform) {
 				// Static transform + lighting results: offsets are in position floats (3 per vertex)
@@ -1102,7 +1119,7 @@ export class TransformWorkerPool {
 						const meshPositions = positions.subarray(start, end);
 						const meshNormals = (normals && registration.hasNormals) ? normals.subarray(start, end) : null;
 						const meshColors = colors ? colors.subarray(colorOffset, colorOffset + vertexCount * 4) : null;
-						registration.callback(meshPositions, meshNormals, meshColors);
+						registration.callback(meshPositions, meshNormals, meshColors, anchorMatrix);
 					}
 					colorOffset += vertexCount * 4;
 				}

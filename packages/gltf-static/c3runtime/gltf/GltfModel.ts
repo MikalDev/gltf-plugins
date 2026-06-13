@@ -659,16 +659,15 @@ export class GltfModel {
 		for (const mesh of this._meshes) {
 			if (mesh.isSkinned && mesh.isRegisteredSkinnedWithPool) {
 				meshIds.push(mesh.id);
-				// Record the anchor matrix baked into these bones so the mesh can
-				// re-anchor its positions on transform changes between skin results
-				if (instanceMatrix) mesh.notifySkinningQueued(instanceMatrix);
 			}
 		}
 
 		if (meshIds.length === 0) return;
 
-		// Queue skinning with shared bone matrices and optional lighting
-		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig);
+		// Queue skinning with shared bone matrices and optional lighting.
+		// instanceMatrix is the anchor baked into the bones; the worker echoes it
+		// back with the result so each mesh re-anchors from the result itself.
+		this._workerPool.queueSkinning(meshIds, boneMatrices, lightConfig, instanceMatrix);
 
 		// Schedule flush for end of frame
 		SharedWorkerPool.scheduleFlush();
@@ -775,8 +774,13 @@ export class GltfModel {
 		if (enabled === this._useWorkers) return;
 
 		if (!enabled) {
-			// Disable workers - release reference to shared pool
+			// Disable workers - release reference to shared pool. Unregister each
+			// mesh first so its registration flags clear and re-enabling registers
+			// from scratch (the pool may have been destroyed in between).
 			if (this._workerPool) {
+				for (const mesh of this._meshes) {
+					mesh.unregisterFromPool();
+				}
 				SharedWorkerPool.release();
 				this._workerPool = null;
 			}

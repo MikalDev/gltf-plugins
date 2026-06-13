@@ -55,17 +55,13 @@ export class GltfMesh {
 	private _skinningData: MeshSkinningData | null = null;
 	private _skinData: CachedSkinData | null = null;
 
-	// World-anchor tracking for skinned meshes.
-	// _skinnedBaseMatrix: the instance matrix the positions currently in _meshData
-	// are anchored to (identity = model space, e.g. main-thread skinning output).
-	// _pendingSkinMatrices: FIFO of instance matrices baked into the bone matrices
-	// of in-flight worker skinning requests; each result promotes the oldest entry
-	// to the base matrix. A FIFO (not a single slot) because more than one request
-	// can be in flight when workers fall behind, and results arrive in queue order.
+	// World-anchor tracking for skinned meshes: the instance matrix the positions
+	// currently in _meshData are anchored to (identity = model space, e.g.
+	// main-thread skinning output). Worker skin results carry their own anchor
+	// (echoed through the request), so no request/response bookkeeping is needed.
 	// Lets retransformSkinned() re-anchor the current skinned pose to a new
 	// instance transform without waiting for a re-skin.
 	private _skinnedBaseMatrix: Float32Array | null = null;
-	private _pendingSkinMatrices: Float32Array[] = [];
 
 	// Morph target data
 	private _morphTargets: MorphTargetData[] | null = null;
@@ -525,14 +521,13 @@ export class GltfMesh {
 			: new Uint8Array(this._skinningData.joints);
 		const weightsCopy = new Float32Array(this._skinningData.weights);
 
-		pool.registerSkinnedMesh(this._id, positionsCopy, normalsCopy, jointsCopy, weightsCopy, (skinnedPositions, skinnedNormals, skinnedColors) => {
+		pool.registerSkinnedMesh(this._id, positionsCopy, normalsCopy, jointsCopy, weightsCopy, (skinnedPositions, skinnedNormals, skinnedColors, anchor) => {
 			// The instance may have moved after this request was queued (event-sheet
 			// motion runs between _tick and _tick2), so the result can be anchored to
 			// a stale matrix. Remember the last pushed transform and re-anchor to it
 			// below — the TRS dirty gate won't fire again to correct it.
 			const target = this._skinnedBaseMatrix ? new Float32Array(this._skinnedBaseMatrix) : null;
 			this._applyPositions(skinnedPositions);
-			const anchor = this._pendingSkinMatrices.shift();
 			if (anchor) {
 				if (!this._skinnedBaseMatrix) this._skinnedBaseMatrix = new Float32Array(16);
 				this._skinnedBaseMatrix.set(anchor);
@@ -818,18 +813,6 @@ export class GltfMesh {
 	}
 
 	/**
-	 * Record the instance matrix baked into a worker skinning request just queued.
-	 * Becomes the base anchor matrix when that request's result is applied.
-	 */
-	notifySkinningQueued(instanceMatrix: Float32Array): void {
-		// Sanity cap: results normally arrive within a frame or two. If the queue
-		// ever grows past this, request/result correspondence is already lost, so
-		// keep only the most recent anchors.
-		if (this._pendingSkinMatrices.length >= 8) this._pendingSkinMatrices.shift();
-		this._pendingSkinMatrices.push(new Float32Array(instanceMatrix));
-	}
-
-	/**
 	 * Re-anchor the current skinned positions to a new instance matrix by applying
 	 * delta = instanceMatrix * inverse(baseMatrix) to the position buffer in place.
 	 * Synchronous, so a moved/rotated instance renders at its current transform this
@@ -883,9 +866,15 @@ export class GltfMesh {
 		}
 		this._meshData.markDataChanged("positions", 0, n);
 
-		// Rotation/scale in the delta also moves normals — re-rotate and re-light
-		const rotates = d0 !== 1 || d5 !== 1 || d10 !== 1
-			|| d1 !== 0 || d2 !== 0 || d4 !== 0 || d6 !== 0 || d8 !== 0 || d9 !== 0;
+		// Rotation/scale in the delta also moves normals — re-rotate and re-light.
+		// Epsilon, not exact: invert×multiply leaves float noise in the 3×3 block,
+		// so a translation-only delta on a rotated instance would otherwise re-light
+		// every frame. A skipped sub-epsilon rotation is corrected by the next skin
+		// result, which replaces the normals exactly.
+		const E = 1e-6;
+		const rotates = Math.abs(d0 - 1) > E || Math.abs(d5 - 1) > E || Math.abs(d10 - 1) > E
+			|| Math.abs(d1) > E || Math.abs(d2) > E || Math.abs(d4) > E
+			|| Math.abs(d6) > E || Math.abs(d8) > E || Math.abs(d9) > E;
 		if (rotates && this._transformedNormals) {
 			const normals = this._transformedNormals;
 			for (let i = 0; i < n; i++) {
@@ -1222,17 +1211,26 @@ export class GltfMesh {
 	}
 
 	/**
+	 * Unregister from the worker pool and clear registration flags, so a later
+	 * register*WithPool() call re-registers from scratch. Without this, toggling
+	 * workers off→on left the flags set and the fresh pool empty, silently
+	 * freezing skinning.
+	 */
+	unregisterFromPool(): void {
+		if (this._workerPool && (this._isRegisteredWithPool || this._isRegisteredSkinnedWithPool || this._isRegisteredStaticLightingWithPool)) {
+			this._workerPool.unregisterMesh(this._id);
+		}
+		this._isRegisteredWithPool = false;
+		this._isRegisteredSkinnedWithPool = false;
+		this._isRegisteredStaticLightingWithPool = false;
+		this._workerPool = null;
+	}
+
+	/**
 	 * Release GPU resources and unregister from worker pool.
 	 */
 	release(): void {
-		// Unregister from worker pool if registered
-		if (this._workerPool && (this._isRegisteredWithPool || this._isRegisteredSkinnedWithPool || this._isRegisteredStaticLightingWithPool)) {
-			this._workerPool.unregisterMesh(this._id);
-			this._isRegisteredWithPool = false;
-			this._isRegisteredSkinnedWithPool = false;
-			this._isRegisteredStaticLightingWithPool = false;
-		}
-		this._workerPool = null;
+		this.unregisterFromPool();
 
 		if (this._meshData) {
 			this._meshData.release();

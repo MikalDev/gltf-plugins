@@ -3160,6 +3160,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			"rotationX": this._rotationX,
 			"rotationY": this._rotationY,
 			"rotationZ": this._rotationZ,
+			"rotationQuat": [this._rotationQuat[0], this._rotationQuat[1], this._rotationQuat[2], this._rotationQuat[3]],
 			"scaleX": this._scaleX,
 			"scaleY": this._scaleY,
 			"scaleZ": this._scaleZ,
@@ -3180,6 +3181,21 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._rotationX = data["rotationX"] as number;
 		this._rotationY = data["rotationY"] as number;
 		this._rotationZ = data["rotationZ"] as number;
+		// The matrix is built from the quaternion, not the eulers. Restore it
+		// directly (eulers can't represent quaternion-set rotations); older saves
+		// without it resync from the eulers.
+		if ("rotationQuat" in data)
+		{
+			const q = data["rotationQuat"] as number[];
+			this._rotationQuat[0] = q[0];
+			this._rotationQuat[1] = q[1];
+			this._rotationQuat[2] = q[2];
+			this._rotationQuat[3] = q[3];
+		}
+		else
+		{
+			this._updateQuatFromEuler();
+		}
 		// Support both old uniform scale and new per-axis scale
 		if ("scaleX" in data)
 		{
