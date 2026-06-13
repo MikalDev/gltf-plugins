@@ -7,7 +7,6 @@ interface TextureCreateOptions {
 	wrapX?: TextureWrapMode;
 	wrapY?: TextureWrapMode;
 	defaultSampling?: SamplingModeType;
-	sampling?: SamplingModeType;
 	mipMap?: boolean
 }
 interface TextureUpdateOptions {

@@ -14,7 +14,15 @@ declare namespace SDK {
 		HadTextureError(): boolean;
 
 		IsOriginalSizeKnown(): boolean;
+		GetOriginalSize(): Vec3Arr;
+
+		/**
+		 * @deprecated Use GetOriginalSize() instead
+		 */
 		GetOriginalWidth(): number;
+		/**
+		 * @deprecated Use GetOriginalSize() instead
+		 */
 		GetOriginalHeight(): number;
 
 		HasDoubleTapHandler(): boolean;

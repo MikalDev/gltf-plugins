@@ -38,6 +38,7 @@ declare namespace SDK {
 
 		SetIsResizable(v: boolean): void;
 		SetIsRotatable(v: boolean): void;
+		SetIsRotatable3D(v: boolean): void;
 		SetSupportsZElevation(v: boolean): void;
 		SetHasImage(v: boolean): void;
 		SetDefaultImageURL(v: string): void;

@@ -651,7 +651,7 @@ export class GltfModel {
 	 * @param boneMatrices Bone matrices from AnimationController.getBoneMatrices()
 	 * @param lightConfig Optional lighting configuration to compute vertex colors in worker
 	 */
-	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig): void {
+	queueSkinning(boneMatrices: Float32Array, lightConfig?: WorkerLightConfig, instanceMatrix?: Float32Array): void {
 		if (!this._workerPool || !this._useWorkers) return;
 
 		// Collect IDs of all skinned meshes registered with pool
@@ -659,6 +659,9 @@ export class GltfModel {
 		for (const mesh of this._meshes) {
 			if (mesh.isSkinned && mesh.isRegisteredSkinnedWithPool) {
 				meshIds.push(mesh.id);
+				// Record the anchor matrix baked into these bones so the mesh can
+				// re-anchor its positions on transform changes between skin results
+				if (instanceMatrix) mesh.notifySkinningQueued(instanceMatrix);
 			}
 		}
 
@@ -705,10 +708,14 @@ export class GltfModel {
 		}
 
 		if (requests.length > 0) {
+			// Copy: _instanceMatrix is rebuilt in place and can change (event-sheet
+			// motion after _tick) before these async results return.
+			const queuedMatrix = new Float32Array(this._instanceMatrix);
 			pool.queueStaticTransformAndLighting(requests, (meshId, positions, colors) => {
 				const mesh = this._meshes.find(m => m.id === meshId);
 				if (mesh) {
 					mesh.applyTransformedData(positions, colors);
+					mesh.reapplyTransformIfStale(queuedMatrix);
 				}
 			});
 			SharedWorkerPool.scheduleFlush();
@@ -1658,6 +1665,29 @@ export class GltfModel {
 	updateTransformSync(matrix: Float32Array): void {
 		for (const mesh of this._meshes) {
 			mesh.updateTransformSync(matrix);
+		}
+	}
+
+	/**
+	 * Push a new instance transform to all meshes without disturbing animation state.
+	 * Skinned meshes are re-anchored in place (delta transform of their current
+	 * skinned positions) rather than rebuilt from bind-pose data, which froze
+	 * skeletal animation in a T-pose whenever the instance moved. Static meshes
+	 * under animated nodes keep their node world transform, and morphed meshes
+	 * keep their morph deltas. Fully synchronous — the instance renders at its
+	 * new transform the same frame, with no worker round-trip lag.
+	 */
+	pushInstanceTransform(matrix: Float32Array): void {
+		for (const mesh of this._meshes) {
+			if (mesh.isSkinned) {
+				mesh.retransformSkinned(matrix);
+			} else if (mesh.parentNode?.hasAnimatedAncestor()) {
+				mesh.updateNodeTransform(matrix);
+			} else if (mesh.hasMorphTargets) {
+				mesh.applyMorphedTransform(matrix);
+			} else {
+				mesh.updateTransformSync(matrix);
+			}
 		}
 	}
 

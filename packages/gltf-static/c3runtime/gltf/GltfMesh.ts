@@ -55,6 +55,18 @@ export class GltfMesh {
 	private _skinningData: MeshSkinningData | null = null;
 	private _skinData: CachedSkinData | null = null;
 
+	// World-anchor tracking for skinned meshes.
+	// _skinnedBaseMatrix: the instance matrix the positions currently in _meshData
+	// are anchored to (identity = model space, e.g. main-thread skinning output).
+	// _pendingSkinMatrices: FIFO of instance matrices baked into the bone matrices
+	// of in-flight worker skinning requests; each result promotes the oldest entry
+	// to the base matrix. A FIFO (not a single slot) because more than one request
+	// can be in flight when workers fall behind, and results arrive in queue order.
+	// Lets retransformSkinned() re-anchor the current skinned pose to a new
+	// instance transform without waiting for a re-skin.
+	private _skinnedBaseMatrix: Float32Array | null = null;
+	private _pendingSkinMatrices: Float32Array[] = [];
+
 	// Morph target data
 	private _morphTargets: MorphTargetData[] | null = null;
 	private _morphWeights: Float32Array | null = null;
@@ -514,13 +526,24 @@ export class GltfMesh {
 		const weightsCopy = new Float32Array(this._skinningData.weights);
 
 		pool.registerSkinnedMesh(this._id, positionsCopy, normalsCopy, jointsCopy, weightsCopy, (skinnedPositions, skinnedNormals, skinnedColors) => {
+			// The instance may have moved after this request was queued (event-sheet
+			// motion runs between _tick and _tick2), so the result can be anchored to
+			// a stale matrix. Remember the last pushed transform and re-anchor to it
+			// below — the TRS dirty gate won't fire again to correct it.
+			const target = this._skinnedBaseMatrix ? new Float32Array(this._skinnedBaseMatrix) : null;
 			this._applyPositions(skinnedPositions);
+			const anchor = this._pendingSkinMatrices.shift();
+			if (anchor) {
+				if (!this._skinnedBaseMatrix) this._skinnedBaseMatrix = new Float32Array(16);
+				this._skinnedBaseMatrix.set(anchor);
+			}
 			if (skinnedNormals) {
 				this._applyNormals(skinnedNormals);
 			}
 			if (skinnedColors) {
 				this._applyColors(skinnedColors);
 			}
+			if (target) this.retransformSkinned(target);
 		});
 
 		this._isRegisteredSkinnedWithPool = true;
@@ -688,6 +711,14 @@ export class GltfMesh {
 		this._lastMatrix.set(matrix);
 
 		this._transformToGPU(this._originalPositions, this._originalNormals, matrix);
+
+		// For skinned meshes this rebuilds from bind pose, so the buffer is now
+		// anchored at `matrix` — record it so retransformSkinned() stays consistent
+		// if a legacy caller hits this path.
+		if (this.isSkinned) {
+			if (!this._skinnedBaseMatrix) this._skinnedBaseMatrix = new Float32Array(16);
+			this._skinnedBaseMatrix.set(matrix);
+		}
 	}
 
 	/**
@@ -696,6 +727,23 @@ export class GltfMesh {
 	 */
 	updateTransform(matrix: Float32Array): void {
 		this.updateTransformSync(matrix);
+	}
+
+	/**
+	 * Called after a worker result computed with `appliedMatrix` overwrote the
+	 * position buffer. If a newer transform was sync-pushed while the request
+	 * was in flight (_lastMatrix differs), re-apply it so the mesh doesn't snap
+	 * back to the stale position.
+	 */
+	reapplyTransformIfStale(appliedMatrix: Float32Array): void {
+		const last = this._lastMatrix;
+		if (!last || !this._originalPositions) return;
+		for (let i = 0; i < 16; i++) {
+			if (last[i] !== appliedMatrix[i]) {
+				this._transformToGPU(this._originalPositions, this._originalNormals, last);
+				return;
+			}
+		}
 	}
 
 	/**
@@ -763,6 +811,97 @@ export class GltfMesh {
 
 		// Clear last matrix since we're using raw positions now
 		this._lastMatrix = null;
+
+		// Main-thread skinned positions are model space (no instance matrix applied)
+		if (!this._skinnedBaseMatrix) this._skinnedBaseMatrix = new Float32Array(16);
+		mat4.identity(this._skinnedBaseMatrix as unknown as mat4);
+	}
+
+	/**
+	 * Record the instance matrix baked into a worker skinning request just queued.
+	 * Becomes the base anchor matrix when that request's result is applied.
+	 */
+	notifySkinningQueued(instanceMatrix: Float32Array): void {
+		// Sanity cap: results normally arrive within a frame or two. If the queue
+		// ever grows past this, request/result correspondence is already lost, so
+		// keep only the most recent anchors.
+		if (this._pendingSkinMatrices.length >= 8) this._pendingSkinMatrices.shift();
+		this._pendingSkinMatrices.push(new Float32Array(instanceMatrix));
+	}
+
+	/**
+	 * Re-anchor the current skinned positions to a new instance matrix by applying
+	 * delta = instanceMatrix * inverse(baseMatrix) to the position buffer in place.
+	 * Synchronous, so a moved/rotated instance renders at its current transform this
+	 * frame — no worker round-trip lag — while keeping the last skinned pose intact
+	 * (overwriting with bind-pose data is what froze animation in a T-pose).
+	 * The next skinning result replaces the buffer exactly, resetting any float drift.
+	 */
+	retransformSkinned(instanceMatrix: Float32Array): void {
+		if (!this._meshData || !this.isSkinned) return;
+
+		if (!this._skinnedBaseMatrix) {
+			// No skinning applied yet — buffer holds model-space bind positions
+			this._skinnedBaseMatrix = new Float32Array(16);
+			mat4.identity(this._skinnedBaseMatrix as unknown as mat4);
+		}
+		const base = this._skinnedBaseMatrix;
+
+		let same = true;
+		for (let i = 0; i < 16; i++) {
+			if (base[i] !== instanceMatrix[i]) { same = false; break; }
+		}
+		if (same) return;
+
+		if (!this._tempMatrix) this._tempMatrix = new Float32Array(16);
+		const delta = this._tempMatrix;
+		if (!mat4.invert(delta as unknown as mat4, base as unknown as mat4)) {
+			// Base anchor is degenerate (e.g. a frame at zero scale) — rebuild from
+			// bind pose at the new transform so the mesh recovers instead of staying
+			// collapsed. The next skinning result restores the animated pose.
+			if (this._originalPositions) {
+				this._transformToGPU(this._originalPositions, this._originalNormals, instanceMatrix);
+				base.set(instanceMatrix);
+			}
+			return;
+		}
+		mat4.multiply(delta as unknown as mat4, instanceMatrix as unknown as mat4, delta as unknown as mat4);
+
+		const positions = this._meshData.positions;
+		const n = this._vertexCount;
+		const d0 = delta[0], d1 = delta[1], d2 = delta[2];
+		const d4 = delta[4], d5 = delta[5], d6 = delta[6];
+		const d8 = delta[8], d9 = delta[9], d10 = delta[10];
+		const d12 = delta[12], d13 = delta[13], d14 = delta[14];
+
+		for (let i = 0; i < n; i++) {
+			const idx = i * 3;
+			const x = positions[idx], y = positions[idx + 1], z = positions[idx + 2];
+			positions[idx] = d0 * x + d4 * y + d8 * z + d12;
+			positions[idx + 1] = d1 * x + d5 * y + d9 * z + d13;
+			positions[idx + 2] = d2 * x + d6 * y + d10 * z + d14;
+		}
+		this._meshData.markDataChanged("positions", 0, n);
+
+		// Rotation/scale in the delta also moves normals — re-rotate and re-light
+		const rotates = d0 !== 1 || d5 !== 1 || d10 !== 1
+			|| d1 !== 0 || d2 !== 0 || d4 !== 0 || d6 !== 0 || d8 !== 0 || d9 !== 0;
+		if (rotates && this._transformedNormals) {
+			const normals = this._transformedNormals;
+			for (let i = 0; i < n; i++) {
+				const idx = i * 3;
+				const nx = normals[idx], ny = normals[idx + 1], nz = normals[idx + 2];
+				let tx = d0 * nx + d4 * ny + d8 * nz;
+				let ty = d1 * nx + d5 * ny + d9 * nz;
+				let tz = d2 * nx + d6 * ny + d10 * nz;
+				const len = Math.sqrt(tx * tx + ty * ty + tz * tz);
+				if (len > 0.0001) { tx /= len; ty /= len; tz /= len; }
+				normals[idx] = tx; normals[idx + 1] = ty; normals[idx + 2] = tz;
+			}
+			this.invalidateLighting();
+		}
+
+		base.set(instanceMatrix);
 	}
 
 	/**

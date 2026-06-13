@@ -352,12 +352,25 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		lq[0] = q[0]; lq[1] = q[1]; lq[2] = q[2]; lq[3] = q[3];
 	}
 
+	/**
+	 * Force the next _tick2 push even if no TRS field changed. Needed when a
+	 * non-TRS input of _buildInstanceMatrix changes: model swap (localCenter),
+	 * axis-conversion toggle, or builtin flag flip.
+	 */
+	_invalidateTransformCache(): void
+	{
+		this._lastTickX = NaN;
+	}
+
 	_pushTransformIfChanged(): void
 	{
 		if (!this._model?.isLoaded) return;
 		if (!this._transformFieldsChanged()) return;
 		this._buildInstanceMatrix();
-		this._model.updateTransformSync(this._instanceMatrix);
+		// Animation-safe push: re-anchors skinned meshes instead of overwriting
+		// them with bind-pose data (which froze animation in a T-pose), while
+		// staying synchronous so position never lags the instance.
+		this._model.pushInstanceTransform(this._instanceMatrix);
 		this._cacheTransformFields();
 	}
 
@@ -708,7 +721,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			// This applies object position/rotation/scale to skinned vertices
 			const boneMatrices = this._animationController.getBoneMatrices();
 			const transformedBoneMatrices = this._applyInstanceMatrixToBones(boneMatrices);
-			this._model.queueSkinning(transformedBoneMatrices, lightConfig);
+			this._model.queueSkinning(transformedBoneMatrices, lightConfig, this._instanceMatrix);
 			return;
 		}
 
@@ -750,6 +763,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 					mesh.invalidateLighting(); // Force recalc since normals changed
 				}
 			}
+
+			// Main-thread skinned data is model space — anchor it to the instance transform
+			mesh.retransformSkinned(this._instanceMatrix);
 		}
 	}
 
@@ -1140,7 +1156,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._convertAxes = value;
 
 		// Built-ins skip axis conversion entirely; nothing to update on the GPU side.
-		// The instance matrix is rebuilt every frame, so M_axis change applies on next draw.
 		if (this._useBuiltinModel) return;
 		if (!this._model?.isLoaded) return;
 
@@ -1150,6 +1165,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		for (const mesh of this._model.meshes) {
 			mesh.reverseTriangleWinding();
 		}
+
+		// The transform push is dirty-gated on TRS fields, which didn't change —
+		// force a push so the new M_axis reaches the GPU
+		this._invalidateTransformCache();
 
 		// Y-flip changes which corner of the model bbox lands where in world space,
 		// so the AABB push must be recomputed.
@@ -1262,6 +1281,9 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	{
 		if (this._useBuiltinModel === enabled) return;
 		this._useBuiltinModel = enabled;
+		// _useBuiltinModel feeds _shouldConvertAxes(); the disable path has no
+		// reload to refresh the transform, so force a push
+		this._invalidateTransformCache();
 		if (enabled)
 		{
 			const builtinUrl = "builtin:" + (GltfStaticInstance.BUILTIN_NAMES[this._builtinModelType] ?? "cube");
@@ -1767,6 +1789,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			if (this._useBuiltinModel) {
 				this._applyAddonTexture();
 			}
+
+			// Fresh meshes have never been pushed (and localCenter changed),
+			// so force a transform push on the next _tick2
+			this._invalidateTransformCache();
 
 			// Update C3 instance bounds from model bounding box for proper 3D culling
 			this._updateInstanceBounds();

@@ -73,8 +73,11 @@ declare class IWorldInstance extends IInstance
 
 	originX: number;
 	originY: number;
+	originZ: number;
 	setOrigin(x: number, y: number): void;
 	getOrigin(): Vec2Arr;
+	setOrigin3d(x: number, y: number, z: number): void;
+	getOrigin3d(): Vec3Arr;
 
 	width: number;
 	height: number;
@@ -123,7 +126,7 @@ declare class IWorldInstance extends IInstance
 	removeFromParent(): void;
 	getHierarchyOpts(): SceneGraphHierarchyOpts;
 
-	createMesh(hsize: number, vsize: number): void;
+	createMesh(hsize: number, vsize: number, copyFromOldMesh?: boolean): void;
 	releaseMesh(): void;
 	setMeshPoint(col: number, row: number, opts: SetMeshPointOpts): void;
 	getMeshPoint(col: number, row: number): GetMeshPointOpts;

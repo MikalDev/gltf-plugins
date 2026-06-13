@@ -24,7 +24,7 @@ C3.Plugins.GltfStatic.Type = class GltfStaticType extends (ISDKObjectTypeBase as
 	{
 		const imageInfo = this.getImageInfo();
 		return renderer.loadTextureForImageInfo(imageInfo, {
-			sampling: this.runtime.sampling
+			defaultSampling: this.runtime.sampling
 		});
 	}
 

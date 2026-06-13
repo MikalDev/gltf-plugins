@@ -3,168 +3,179 @@ const C3 = globalThis.C3
   , vec3 = glMatrix.vec3
   , quat = glMatrix.quat
   , mat4 = glMatrix.mat4
-  , VALID_COLOR_MODES = ["texture", "buffer", "instance"];
+  , VALID_COLOR_MODES = ["texture", "buffer", "instance"]
+  , MAX_COLOR_VALUE = new Map([[globalThis.Int8Array, 127], [globalThis.Uint8Array, 255], [globalThis.Uint8ClampedArray, 255], [globalThis.Int16Array, 32767], [globalThis.Uint16Array, 65535], ...void 0 !== globalThis.Float16Array ? [[globalThis.Float16Array, 1]] : [], [globalThis.Int32Array, 2147483647], [globalThis.Uint32Array, 4294967295], [globalThis.Float32Array, 1], [globalThis.BigInt64Array, 9223372036854775807n], [globalThis.BigUint64Array, 18446744073709551615n], [globalThis.Float64Array, 1]]);
 globalThis.AnimatedMesh = class {
     #t = null;
     #e = new Map;
-    #a = new Map;
-    #i = null;
+    #i = new Map;
+    #a = null;
     #s = null;
-    #r = null;
-    #n = "";
+    #n = null;
+    #r = "";
     #o = 0;
     #h = null;
     #l = null;
-    #m = null;
     #u = null;
+    #m = null;
     #d = null;
     #c = null;
     #x = "texture";
-    #D = null;
     #M = null;
+    #D = null;
+    #g = new Set;
     #N = null;
-    #g = null;
-    #p = null;
     #f = null;
+    #A = null;
+    #p = null;
+    #T = vec3.create();
+    #b = vec3.create();
     #G = vec3.create();
-    #C = vec3.create();
-    #A = vec3.create();
-    #w = quat.create();
+    #C = quat.create();
     #B = quat.create();
-    #T = quat.create();
-    #V = [[NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN]];
-    #b = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
-    #S = [[NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN]];
-    #k = mat4.create();
-    #v = mat4.create();
-    #I = mat4.create();
-    #q = mat4.create();
-    #P = mat4.create();
-    #U = vec3.create();
-    #y = null;
-    #F = quat.create();
-    #z = quat.create();
-    #R = quat.create();
+    #w = quat.create();
+    #S = null;
+    #V = null;
+    #k = [[NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN], [NaN, NaN, NaN]];
+    #I = [NaN, NaN, NaN, NaN, NaN, NaN];
+    #v = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    #y = [[NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN], [NaN, NaN]];
+    #P = [NaN, NaN, NaN];
+    #z = mat4.create();
+    #R = mat4.create();
+    #U = mat4.create();
+    #O = mat4.create();
+    #F = mat4.create();
+    #q = vec3.create();
+    #E = null;
+    #Q = mat4.create();
     #W = quat.create();
-    #Q = vec3.fromValues(1, 0, 0);
-    #E = vec3.fromValues(0, 1, 0);
-    #X = vec3.fromValues(0, 0, 1);
-    #Y = new C3.Color(0,0,0,1);
-    #j = new C3.Color(0,0,0,1);
-    #Z = !1;
-    #O = !1;
-    #L = !0;
-    #H = null;
-    constructor(t, e, a) {
+    #L = quat.create();
+    #j = vec3.fromValues(0, 0, 1);
+    #Z = new C3.Color(0,0,0,1);
+    #_ = new C3.Color(0,0,0,1);
+    #X = !1;
+    #H = !1;
+    #Y = !0;
+    #J = null;
+    constructor(t, e, i) {
         this.#t = t,
-        this.#i = e,
-        this.#s = a,
-        this.#r = null,
-        this.#n = "",
+        this.#a = e,
+        this.#s = i,
+        this.#n = null,
+        this.#r = "",
         this.#o = 0,
         this.#h = this.#t.GetVertexData(),
-        this.#D = new this.#h.constructor(this.#h.length),
+        this.#M = new this.#h.constructor(this.#h.length),
         this.#l = this.#t.GetSkinIndexData(),
-        this.#m = this.#t.GetSkinWeigthData(),
-        this.#u = this.#t.GetBoneData(),
+        this.#u = this.#t.GetSkinWeigthData(),
+        this.#m = this.#t.GetBoneData(),
         this.#c = this.#t.GetBoneInverseMatricesData(),
         this.#d = this.#t.GetBoneBindPoseData(),
         this.#e = this.#t.GetAnimationsMap(),
-        this.#u && (this.#y = new Array(this.#u.length)),
-        this.#f = this.#t.GetModel3dTexture()
+        this.#m && (this.#E = new Array(this.#m.length)),
+        this.#p = this.#t.GetModel3dTexture()
     }
     Release() {
-        this.#Z || (this.#Z = !0,
+        this.#X || (this.#X = !0,
         this.#t && this.#t.Release(),
         this.#t = null,
-        this.#H && this.#H.Release(),
-        this.#H = null,
-        this.#i = null,
+        this.#J && this.#J.Release(),
+        this.#J = null,
+        this.#a = null,
         this.#e = null,
-        this.#r = null,
         this.#n = null,
+        this.#r = null,
         this.#h = null,
         this.#N = null,
+        this.#f = null,
+        this.#A = null,
         this.#g = null,
-        this.#p = null,
         this.#l = null,
-        this.#m = null,
+        this.#u = null,
         this.#c = null,
         this.#d = null,
-        this.#u = null,
-        this.#D = null,
+        this.#m = null,
         this.#M = null,
-        this.#f = null,
+        this.#D = null,
+        this.#p = null,
+        this.#T = null,
+        this.#b = null,
         this.#G = null,
         this.#C = null,
-        this.#A = null,
-        this.#w = null,
         this.#B = null,
-        this.#T = null,
-        this.#V = null,
-        this.#b = null,
-        this.#S = null,
+        this.#w = null,
         this.#k = null,
         this.#v = null,
-        this.#I = null,
-        this.#q = null,
-        this.#U = null,
-        this.#F = null,
+        this.#y = null,
         this.#z = null,
         this.#R = null,
-        this.#W = null,
+        this.#U = null,
+        this.#O = null,
+        this.#q = null,
         this.#Q = null,
-        this.#E = null,
-        this.#X = null)
+        this.#W = null,
+        this.#L = null,
+        this.#j = null)
     }
     OnCreate() {
-        if (this.#u)
-            if (this.#t.IsSkinned())
+        if (this.#t.IsSkinned()) {
+            if (this.#e) {
+                if (!this.#m)
+                    return;
                 for (const [t,e] of this.#e.entries())
-                    this.#a.set(t, []),
+                    this.#i.set(t, []),
                     e.GetTracks().forEach(e => {
-                        const [a,i] = e.GetName().split(".");
-                        let s = this.#u.find(t => t.GetName() === a)
-                          , r = e.GetLookupUUID();
-                        s || (s = this.#u.find(t => t.GetId() === r)),
-                        (s || (s = this.#s.GetAllObjectsDataMap().get(r),
-                        s)) && this.#a.get(t).push({
+                        const [i,a] = e.GetName().split(".");
+                        let s = this.#m.find(t => t.GetName() === i)
+                          , n = e.GetLookupUUID();
+                        s || (s = this.#m.find(t => t.GetId() === n)),
+                        (s || (s = this.#s.GetAllObjectsDataMap().get(n),
+                        s)) && this.#i.get(t).push({
                             object3d: s,
-                            transform: i,
+                            transform: a,
                             track: e
                         })
                     }
-                    );
-            else
-                for (const [t,e] of this.#e.entries())
-                    this.#a.set(t, []),
-                    e.GetTracks().forEach(e => {
-                        const [a,i] = e.GetName().split(".");
-                        if (a === this.#t.GetName())
-                            this.#a.get(t).push({
-                                object3d: this.#t,
-                                transform: i,
-                                track: e
-                            });
-                        else {
-                            const a = this.#s.GetAllObjectsDataMap().get(e.GetLookupUUID());
-                            a && a.GetId() === this.#t.GetId() && this.#a.get(t).push({
-                                object3d: this.#t,
-                                transform: i,
+                    )
+            }
+        } else if (this.#e)
+            for (const [t,e] of this.#e.entries()) {
+                this.#i.set(t, []);
+                const i = new Set;
+                e.GetTracks().forEach(e => {
+                    const [a,s] = e.GetName().split(".");
+                    if (a === this.#t.GetName())
+                        this.#i.get(t).push({
+                            object3d: this.#t,
+                            transform: s,
+                            track: e
+                        });
+                    else {
+                        const a = this.#s.GetAllObjectsDataMap().get(e.GetLookupUUID());
+                        if (a) {
+                            if (i.has(a))
+                                return;
+                            i.add(a),
+                            this.#i.get(t).push({
+                                object3d: a,
+                                transform: s,
                                 track: e
                             })
                         }
                     }
-                    )
+                }
+                )
+            }
     }
     WasReleased() {
-        return this.#Z
+        return this.#X
     }
     GetName() {
         return this.#t.GetName()
     }
     GetInstance() {
-        return this.#i
+        return this.#a
     }
     *animations() {
         if (this.#e)
@@ -172,13 +183,14 @@ globalThis.AnimatedMesh = class {
                 yield t
     }
     GetCurrentAnimation() {
-        return this.#r
+        return this.#n || (this.#n = this.#e?.get(this.#r)),
+        this.#n
     }
     GetCurrentAnimationName() {
-        return this.#n
+        return this.#r
     }
     GetModel3dTexture() {
-        return this.#f
+        return this.#p
     }
     GetRenderType() {
         return this.#t.GetRenderType()
@@ -189,400 +201,515 @@ globalThis.AnimatedMesh = class {
     GetTime() {
         return this.#o
     }
-    Play(t, e=0, a=!1) {
-        t && (this.#n !== t || a) && (this.#r = this.#e.get(t),
-        this.#n = t,
-        this.#r ? (e < 0 && (e = 0),
-        e > this.#r.GetDuration() && (e = this.#r.GetDuration()),
+    Play(t, e=0, i=!1) {
+        t ? (this.#r !== t || i) && (this.#e ? (this.#n = this.#e.get(t),
+        this.#r = t,
+        this.#n ? (e < 0 && (e = 0),
+        e > this.#n.GetDuration() && (e = this.#n.GetDuration()),
         this.#o = e) : this.#o = e,
-        this.SetAnimationAtTime(this.#o, !0))
+        this.SetAnimationAtTime(this.#o, !0)) : this.SetAnimationAtTime(0, !0)) : this.SetAnimationAtTime(0, !0)
     }
-    SetAnimationAtTime(t, e=!1) {
-        (t !== this.#o || e) && (this.#u && this.#u.forEach( (t, e) => {
+    ResetTransform() {
+        if (this.#m)
+            return;
+        const t = this.#s.GetAllObjectsDataMap();
+        if (t)
+            for (const e of t.values())
+                e.ResetTransform();
+        this.#t.ResetTransform()
+    }
+    SetAnimationAtTime(t, e=!1, i=!0) {
+        (t !== this.#o || e) && (this.#m && this.#m.forEach( (t, e) => {
             t.SetPosition(this.#d[e].GetPosition()),
             t.SetQuaternion(this.#d[e].GetQuaternion()),
             t.SetScale(this.#d[e].GetScale())
         }
         ),
-        this.UpdateAnimation(0, t, !!e))
+        this.UpdateAnimation(0, t, !!e, !!i))
     }
-    UpdateAnimation(t, e=void 0, a=!1) {
-        if (!this.#r) {
-            if (!this.#e)
-                return;
-            if (this.#r = this.#e.get(this.#n),
-            !this.#r)
-                return
-        }
-        const i = this.#o;
-        if (C3.IsFiniteNumber(e) ? this.#o = e : this.#o = (this.#o + t) % this.#r.GetDuration(),
-        i !== this.#o || a)
+    UpdateAnimation(t, e=void 0, i=!1, a=!0) {
+        this.#n || (this.#n = this.#e?.get(this.#r));
+        const s = this.#o;
+        if (C3.IsFiniteNumber(e) ? this.#n ? this.#o = e : this.#o = 0 : this.#n ? this.#o = (this.#o + t) % this.#n.GetDuration() : this.#o = 0,
+        s !== this.#o || i)
             if (this.#t.IsSkinned()) {
-                for (const t of this.#a.get(this.#n)) {
-                    const e = t.object3d
-                      , a = t.transform
-                      , i = t.track
-                      , s = this.#_(i, this.#o);
-                    e.SetTransform(a, s)
-                }
-                this.#u.forEach(t => t.UpdateWorldMatrix(!0));
-                const t = this.#t.GetBindMatrix()
-                  , e = this.#t.GetBindMatrixInverse();
-                for (let a = 0; a < this.#u.length; a++) {
-                    const i = this.#u[a].GetWorldMatrix()
-                      , s = this.#c[a];
-                    C3.mat4FromArray(this.#P, s);
-                    const r = mat4.create();
-                    t && e ? mat4.multiply(r, e, i) : mat4.copy(r, i),
-                    mat4.multiply(r, r, this.#P),
-                    this.#y[a] = r
-                }
-                const a = this.#h.length / 3;
-                for (let t = 0; t < a; t++) {
-                    C3.vec3FromArray(this.#G, this.#h, 3 * t),
-                    vec3.set(this.#C, 0, 0, 0);
-                    const e = 4 * t;
-                    for (let t = 0; t < 4; t++) {
-                        const a = this.#m[e + t];
-                        if (0 === a)
-                            continue;
-                        const i = this.#l[e + t]
-                          , s = this.#y[i];
-                        vec3.transformMat4(this.#A, this.#G, s),
-                        vec3.scaleAndAdd(this.#C, this.#C, this.#A, a)
+                const t = this.#i.get(this.#r);
+                if (t)
+                    for (const e of t) {
+                        const t = e.object3d
+                          , i = e.transform
+                          , a = e.track
+                          , s = this.#K(a, this.#o, i);
+                        t.SetTransform(i, s)
                     }
-                    C3.vec3ToArray(this.#C, this.#D, 3 * t)
+                if (this.#m.forEach(t => t.UpdateWorldMatrix(!0, !0)),
+                a) {
+                    const t = this.#t.GetBindMatrix()
+                      , e = this.#t.GetBindMatrixInverse();
+                    for (let i = 0; i < this.#m.length; i++) {
+                        const a = this.#m[i].GetWorldMatrix()
+                          , s = this.#c[i];
+                        C3.mat4FromArray(this.#F, s);
+                        const n = mat4.create();
+                        t && e ? mat4.multiply(n, e, a) : mat4.copy(n, a),
+                        mat4.multiply(n, n, this.#F),
+                        this.#E[i] = n
+                    }
+                    const i = this.#h.length / 3;
+                    for (let t = 0; t < i; t++) {
+                        C3.vec3FromArray(this.#T, this.#h, 3 * t),
+                        vec3.set(this.#b, 0, 0, 0);
+                        const e = 4 * t;
+                        for (let t = 0; t < 4; t++) {
+                            const i = this.#u[e + t];
+                            if (0 === i)
+                                continue;
+                            const a = this.#l[e + t]
+                              , s = this.#E[a];
+                            vec3.transformMat4(this.#G, this.#T, s),
+                            vec3.scaleAndAdd(this.#b, this.#b, this.#G, i)
+                        }
+                        C3.vec3ToArray(this.#b, this.#M, 3 * t)
+                    }
                 }
             } else {
-                for (const t of this.#a.get(this.#n)) {
-                    const e = t.object3d
-                      , a = t.transform
-                      , i = t.track
-                      , s = this.#_(i, this.#o);
-                    e.SetTransform(a, s)
-                }
-                this.#t.UpdateWorldMatrix(!0),
-                this.#D = this.#h
+                const t = this.#i.get(this.#r);
+                if (t)
+                    for (const e of t) {
+                        const t = e.object3d
+                          , i = e.transform
+                          , a = e.track
+                          , s = this.#K(a, this.#o, i);
+                        t.SetTransform(i, s)
+                    }
+                this.#t.UpdateWorldMatrix(!0, !0),
+                this.#M = this.#h
             }
     }
     DrawMesh(t, e) {
-        e.sdkInstance = this.#i.GetSdkInstance ? this.#i.GetSdkInstance() : null;
-        const a = this.#f.GetTexture(e?.runtime, t, e);
+        e.sdkInstance = this.#a.GetSdkInstance ? this.#a.GetSdkInstance() : null;
+        const i = this.#p.GetTexture(e?.runtime, t, e);
         if (e?.updateVertexData && this.UpdateVertexData(e),
-        a && "texture" === this.#f.GetContentType() ? (t.SetTextureFillMode(),
-        t.SetTexture(a, this.#i.GetActiveSampling() ?? 0),
-        this.#J(this.#i.GetColor ? this.#i.GetColor() : this.#i.GetUnpremultipliedColor()),
-        t.DrawMeshData(this.#H)) : this.#t.GetColorData() ? (t.SetColorFillMode(),
+        t.SetCullFaceMode(this.#s.GetOptions().backFaceCulling ? 1 : 0),
+        i && "texture" === this.#p.GetContentType() ? (this.#s.IsUsingEffects() || t.SetTextureFillMode(),
+        t.SetTexture(i, this.#a.GetActiveSampling() ?? 0),
+        this.#$(this.#a.GetColor ? this.#a.GetColor() : this.#a.GetUnpremultipliedColor()),
+        t.DrawMeshData(this.#J)) : this.#t.GetColorData() ? (t.SetColorFillMode(),
         t.SetTexture(null),
         t.ResetColor(),
-        this.#J(this.#i.GetColor ? this.#i.GetColor() : this.#i.GetUnpremultipliedColor()),
-        t.DrawMeshData(this.#H)) : !this.#f.GetColor() || this.#f.HadTextureError(e) || this.#f.IsLoadingTexture(e) ? this.#f.HadTextureError(e) ? (t.SetColorFillMode(),
+        this.#$(this.#a.GetColor ? this.#a.GetColor() : this.#a.GetUnpremultipliedColor()),
+        t.DrawMeshData(this.#J)) : !this.#p.GetColor() || this.#p.HadTextureError(e) || this.#p.IsLoadingTexture(e) ? this.#p.HadTextureError(e) ? (t.SetColorFillMode(),
         t.SetTexture(null),
         t.SetColorRgba(.25, 0, 0, .25),
-        t.DrawMeshData(this.#H)) : (t.SetColorFillMode(),
+        t.DrawMeshData(this.#J)) : (t.SetColorFillMode(),
         t.SetTexture(null),
         t.SetColorRgba(0, 0, .1, .1),
-        t.DrawMeshData(this.#H)) : (t.SetColorFillMode(),
+        t.DrawMeshData(this.#J)) : (t.SetColorFillMode(),
         t.SetTexture(null),
-        this.#K(),
-        t.DrawMeshData(this.#H)),
+        this.#tt(),
+        t.DrawMeshData(this.#J)),
         e.showBoundingBox) {
+            t.SetCurrentZ(0),
             t.SetColorFillMode(),
             t.SetTexture(null),
             t.SetColor(e.boundingBoxColor);
-            for (const e of this.GetBoundingBoxForDrawing(this.#H.positions))
+            for (const e of this.GetBoundingBoxForDrawing(this.#J.positions))
                 t.Line3D(e[0][0], e[0][1], e[0][2], e[1][0], e[1][1], e[1][2])
         }
     }
     MaybeCreateMeshData(t) {
-        if (this.#H)
+        if (this.#J)
             return;
         const e = this.#t.GetIndexData()
-          , a = e ? e.length : this.#h.length / 3;
-        this.#H = t.CreateMeshData(this.#h.length / 3, a, {
+          , i = e ? e.length : this.#h.length / 3;
+        this.#J = t.CreateMeshData(this.#h.length / 3, i, {
             staticPositions: !1,
             staticTexCoords: !1,
             staticColors: !1,
             staticIndices: !0
         }),
-        this.#H.CreateGPUResources();
-        const i = this.#t.GetUVData();
-        if (i) {
-            for (let t = 0; t < i.length; t++)
-                this.#H.texCoords[t] = i[t];
-            this.#H.MarkTexCoordsDataChanged()
+        this.#J.CreateGPUResources();
+        const a = this.#t.GetUVData();
+        if (a) {
+            for (let t = 0; t < a.length; t++)
+                this.#J.texCoords[t] = a[t];
+            this.#J.MarkTexCoordsDataChanged()
         }
         if (e)
             for (let t = 0; t < e.length; t++)
-                this.#H.indices[t] = e[t];
+                this.#J.indices[t] = e[t];
         else
-            for (let t = 0; t < this.#H.indices.length; t++)
-                this.#H.indices[t] = t;
-        this.#H.MarkIndexDataChanged()
+            for (let t = 0; t < this.#J.indices.length; t++)
+                this.#J.indices[t] = t;
+        this.#J.MarkIndexDataChanged()
     }
-    #K() {
-        const t = this.#f.GetColor();
-        this.#j.equals(t) && "texture" === this.#x || (this.#j.set(t),
+    #tt() {
+        const t = this.#p.GetColor();
+        this.#_.equals(t) && "texture" === this.#x || (this.#_.set(t),
         this.#x = "texture",
-        this.#H.FillColor(t.r, t.g, t.b, t.a),
-        this.#H.MarkColorsDataChanged())
+        this.#J.FillColor(t.r, t.g, t.b, t.a),
+        this.#J.MarkColorsDataChanged())
     }
-    #J(t) {
+    #$(t) {
         if (this.#t.GetColorData()) {
-            if (this.#j.equals(t) && "buffer" === this.#x)
+            if (this.#_.equals(t) && "buffer" === this.#x)
                 return;
-            this.#j.set(t),
+            this.#_.set(t),
             this.#x = "buffer";
             const e = this.#t.GetColorData()
-              , a = this.#H.colors;
-            for (let i = 0; i < e.length; i += 4)
-                a[i + 0] = e[i + 0] * t.r,
-                a[i + 1] = e[i + 1] * t.g,
-                a[i + 2] = e[i + 2] * t.b,
-                a[i + 3] = e[i + 3] * t.a;
-            this.#H.MarkColorsDataChanged()
+              , i = MAX_COLOR_VALUE.get(e.constructor)
+              , a = this.#J.colors;
+            for (let s = 0; s < e.length; s += 4)
+                a[s + 0] = e[s + 0] / i * t.r,
+                a[s + 1] = e[s + 1] / i * t.g,
+                a[s + 2] = e[s + 2] / i * t.b,
+                a[s + 3] = e[s + 3] / i * t.a;
+            this.#J.MarkColorsDataChanged()
         } else {
-            if (this.#j.equals(t) && "instance" === this.#x)
+            if (this.#_.equals(t) && "instance" === this.#x)
                 return;
-            this.#j.set(t),
+            this.#_.set(t),
             this.#x = "instance",
-            this.#H.FillColor(t.r, t.g, t.b, t.a),
-            this.#H.MarkColorsDataChanged()
+            this.#J.FillColor(t.r, t.g, t.b, t.a),
+            this.#J.MarkColorsDataChanged()
         }
     }
     UpdateVertexData(t) {
-        let e, a, i;
-        t?.useOwnNormalizationMatrix ? (e = this.#$(),
-        a = this.#tt(),
-        i = this.#et()) : (e = this.#s.GetNormalizationMatrix(),
-        a = this.#s.GetPivotUpMatrix(),
-        i = this.#s.GetNormalizationAspect());
-        const s = this.#i.GetWidth()
-          , r = this.#i.GetHeight()
-          , n = this.#i.GetX() + (t?.positionX ?? 0)
-          , o = this.#i.GetY() + (t?.positionY ?? 0)
-          , h = this.#i.GetTotalZElevation() + (t?.positionZ ?? 0)
-          , l = Math.min(s / i.x, r / i.y)
-          , m = t?.scaleX ?? 1
-          , u = t?.scaleY ?? 1
+        let e, i, a;
+        t?.useOwnNormalizationMatrix ? (e = this.#et(),
+        i = this.#it(),
+        a = this.#at()) : (e = this.#s.GetNormalizationMatrix(),
+        i = this.#s.GetPivotMatrix(),
+        a = this.#s.GetNormalizationAspect());
+        const s = this.#a.GetWidth()
+          , n = this.#a.GetHeight()
+          , r = this.#a.GetX() + (t?.positionX ?? 0)
+          , o = this.#a.GetY() + (t?.positionY ?? 0)
+          , h = this.#a.GetTotalZ() + (t?.positionZ ?? 0)
+          , l = Math.min(s / a.x, n / a.y)
+          , u = t?.scaleX ?? 1
+          , m = t?.scaleY ?? 1
           , d = t?.scaleZ ?? 1;
-        this.#i.SetDepth(l * d),
-        C3.makeScaleMatrix(mat4, this.#k, l * m, l * u, l * d),
-        C3.makeTranslateMatrix(mat4, this.#I, n, o, h),
-        quat.setAxisAngle(this.#F, this.#Q, t?.rotationX ?? 0),
-        quat.setAxisAngle(this.#z, this.#E, t?.rotationY ?? 0),
-        quat.setAxisAngle(this.#R, this.#X, t?.rotationZ ?? 0),
-        quat.multiply(this.#W, this.#R, this.#z),
-        quat.multiply(this.#W, this.#W, this.#F),
-        mat4.fromQuat(this.#v, this.#W),
-        mat4.copy(this.#q, this.#I),
-        mat4.multiply(this.#q, this.#q, this.#k),
-        mat4.multiply(this.#q, this.#q, a),
-        mat4.multiply(this.#q, this.#q, this.#v),
-        mat4.multiply(this.#q, this.#q, e),
-        this.#t.IsSkinned() || mat4.multiply(this.#q, this.#q, this.#t.GetWorldMatrix());
-        const c = this.#t.IsSkinned() ? this.#D : this.#h
+        this.#a.SetDepth(Math.abs(l * d)),
+        C3.makeScaleMatrix(mat4, this.#z, l * u, l * m, l * d),
+        C3.makeTranslateMatrix(mat4, this.#U, r, o, h),
+        t.quaternion && (quat.setAxisAngle(this.#L, this.#j, this.#a.GetAngle()),
+        quat.multiply(this.#W, this.#L, t.quaternion),
+        mat4.fromQuat(this.#R, this.#W)),
+        mat4.copy(this.#O, this.#U),
+        mat4.multiply(this.#O, this.#O, this.#z),
+        mat4.multiply(this.#O, this.#O, i),
+        mat4.multiply(this.#O, this.#O, this.#R),
+        mat4.multiply(this.#O, this.#O, e),
+        this.#t.IsSkinned() || mat4.multiply(this.#O, this.#O, this.#t.GetWorldMatrix());
+        const c = this.#t.IsSkinned() ? this.#M : this.#h
           , x = c.length / 3;
         for (let t = 0; t < x; t++)
-            C3.vec3FromArray(this.#U, c, 3 * t),
-            vec3.transformMat4(this.#U, this.#U, this.#q),
-            C3.vec3ToArray(this.#U, this.#H.positions, 3 * t);
-        this.#H.MarkPositionDataChanged()
+            C3.vec3FromArray(this.#q, c, 3 * t),
+            vec3.transformMat4(this.#q, this.#q, this.#O),
+            C3.vec3ToArray(this.#q, this.#J.positions, 3 * t);
+        this.#J.MarkPositionDataChanged()
     }
     GetRawVertexData() {
         return this.#h
     }
     GetSkinnedVertexData() {
-        return this.#D
+        return this.#M
     }
     GetWorldVertexData() {
-        if (this.#N && this.#M)
-            return this.#M;
-        this.#M || (this.#M = new this.#h.constructor(this.#h.length));
+        if (this.#N && this.#D)
+            return this.#D;
+        this.#D || (this.#D = new this.#h.constructor(this.#h.length));
         const t = vec3.create();
         for (let e = 0; e < this.#h.length; e += 3)
             vec3.set(t, this.#h[e], this.#h[e + 1], this.#h[e + 2]),
             vec3.transformMat4(t, t, this.#t.GetWorldMatrix()),
-            C3.vec3ToArray(t, this.#M, e);
-        return this.#M
+            C3.vec3ToArray(t, this.#D, e);
+        return this.#D
     }
     GetTransformedVertexData() {
-        return this.#H.positions
+        return this.#J.positions
     }
     IsSkinned() {
         return this.#t.IsSkinned()
     }
     InvalidateUV() {
-        this.#L = !0
+        this.#Y = !0
     }
     GetUVData() {
-        if (this.#L) {
-            if (!this.#f.IsContentReady())
-                return this.#H.texCoords;
-            const t = this.#f.GetSpriteSheetWidth()
-              , e = this.#f.GetSpriteSheetHeight();
+        if (this.#Y) {
+            if (!this.#p.IsContentReady())
+                return this.#J.texCoords;
+            const t = this.#p.GetSpriteSheetWidth()
+              , e = this.#p.GetSpriteSheetHeight();
             if (!C3.IsFiniteNumber(t) || !C3.IsFiniteNumber(e))
-                return this.#H.texCoords;
-            this.#L = !1;
-            const a = this.#H.texCoords
-              , i = this.#f.GetSpriteSheetOffsetX()
-              , s = this.#f.GetSpriteSheetOffsetY()
-              , r = this.#f.GetWidthInSpriteSheet()
-              , n = this.#f.GetHeightInSpriteSheet();
-            for (let o = 0; o < a.length; o += 2) {
-                const h = a[o + 0]
-                  , l = a[o + 1];
-                a[o + 0] = i / t + h * (r / t),
-                a[o + 1] = s / e + l * (n / e)
+                return this.#J.texCoords;
+            this.#Y = !1;
+            const i = this.#J.texCoords
+              , a = this.#p.GetSpriteSheetOffsetX()
+              , s = this.#p.GetSpriteSheetOffsetY()
+              , n = this.#p.GetWidthInSpriteSheet()
+              , r = this.#p.GetHeightInSpriteSheet();
+            for (let o = 0; o < i.length; o += 2) {
+                const h = i[o + 0]
+                  , l = i[o + 1];
+                i[o + 0] = a / t + h * (n / t),
+                i[o + 1] = s / e + l * (r / e)
             }
-            return this.#H.MarkTexCoordsDataChanged(),
-            a
+            return this.#J.MarkTexCoordsDataChanged(),
+            i
         }
-        return this.#H.texCoords
+        return this.#J.texCoords
     }
     GetIndexData() {
-        return this.#H.indices
+        return this.#J.indices
     }
     GetColorData() {
-        return this.#H.colors
+        return this.#J.colors
     }
     GetBoundingBoxMid(t) {
         let e = 1 / 0
-          , a = 1 / 0
           , i = 1 / 0
+          , a = 1 / 0
           , s = -1 / 0
+          , n = -1 / 0
           , r = -1 / 0
-          , n = -1 / 0;
-        for (let o = 0; o < t.length; o += 3) {
-            const h = t[o]
-              , l = t[o + 1]
-              , m = t[o + 2];
-            h < e && (e = h),
-            h > s && (s = h),
-            l < a && (a = l),
-            l > r && (r = l),
-            m < i && (i = m),
-            m > n && (n = m)
+          , o = t.length;
+        for (let h = 0; h < o; h += 3) {
+            const o = t[h]
+              , l = t[h + 1]
+              , u = t[h + 2];
+            o < e && (e = o),
+            o > s && (s = o),
+            l < i && (i = l),
+            l > n && (n = l),
+            u < a && (a = u),
+            u > r && (r = u)
         }
-        return [(e + s) / 2, (a + r) / 2, (i + n) / 2]
+        return this.#P[0] = (e + s) / 2,
+        this.#P[1] = (i + n) / 2,
+        this.#P[2] = (a + r) / 2,
+        this.#P
+    }
+    GetBoundingBoxMinMax() {
+        return this.#I
     }
     GetBoundingBoxForDrawing(t) {
         let e = 1 / 0
-          , a = 1 / 0
           , i = 1 / 0
+          , a = 1 / 0
           , s = -1 / 0
-          , r = -1 / 0
-          , n = -1 / 0;
-        for (let o = 0; o < t.length; o += 3) {
-            const h = t[o]
-              , l = t[o + 1]
-              , m = t[o + 2];
-            h < e && (e = h),
-            h > s && (s = h),
-            l < a && (a = l),
-            l > r && (r = l),
-            m < i && (i = m),
-            m > n && (n = m)
+          , n = -1 / 0
+          , r = -1 / 0;
+        if (Array.isArray(t[0]) || ArrayBuffer.isView(t[0]))
+            for (let o = 0; o < t.length; o++) {
+                const h = t[o];
+                for (let t = 0; t < h.length; t += 3) {
+                    const o = h[t]
+                      , l = h[t + 1]
+                      , u = h[t + 2];
+                    o < e && (e = o),
+                    o > s && (s = o),
+                    l < i && (i = l),
+                    l > n && (n = l),
+                    u < a && (a = u),
+                    u > r && (r = u)
+                }
+            }
+        else
+            for (let o = 0; o < t.length; o += 3) {
+                const h = t[o]
+                  , l = t[o + 1]
+                  , u = t[o + 2];
+                h < e && (e = h),
+                h > s && (s = h),
+                l < i && (i = l),
+                l > n && (n = l),
+                u < a && (a = u),
+                u > r && (r = u)
+            }
+        this.#I[0] = e,
+        this.#I[1] = i,
+        this.#I[2] = a,
+        this.#I[3] = s,
+        this.#I[4] = n,
+        this.#I[5] = r,
+        this.#k[0][0] = e,
+        this.#k[0][1] = i,
+        this.#k[0][2] = a,
+        this.#k[1][0] = s,
+        this.#k[1][1] = i,
+        this.#k[1][2] = a,
+        this.#k[2][0] = s,
+        this.#k[2][1] = n,
+        this.#k[2][2] = a,
+        this.#k[3][0] = e,
+        this.#k[3][1] = n,
+        this.#k[3][2] = a,
+        this.#k[4][0] = e,
+        this.#k[4][1] = i,
+        this.#k[4][2] = r,
+        this.#k[5][0] = s,
+        this.#k[5][1] = i,
+        this.#k[5][2] = r,
+        this.#k[6][0] = s,
+        this.#k[6][1] = n,
+        this.#k[6][2] = r,
+        this.#k[7][0] = e,
+        this.#k[7][1] = n,
+        this.#k[7][2] = r;
+        for (let t = 0; t < this.#v.length; t++) {
+            const e = this.#v[t];
+            this.#y[t][0] = this.#k[e[0]],
+            this.#y[t][1] = this.#k[e[1]]
         }
-        this.#V[0][0] = e,
-        this.#V[0][1] = a,
-        this.#V[0][2] = i,
-        this.#V[1][0] = s,
-        this.#V[1][1] = a,
-        this.#V[1][2] = i,
-        this.#V[2][0] = s,
-        this.#V[2][1] = r,
-        this.#V[2][2] = i,
-        this.#V[3][0] = e,
-        this.#V[3][1] = r,
-        this.#V[3][2] = i,
-        this.#V[4][0] = e,
-        this.#V[4][1] = a,
-        this.#V[4][2] = n,
-        this.#V[5][0] = s,
-        this.#V[5][1] = a,
-        this.#V[5][2] = n,
-        this.#V[6][0] = s,
-        this.#V[6][1] = r,
-        this.#V[6][2] = n,
-        this.#V[7][0] = e,
-        this.#V[7][1] = r,
-        this.#V[7][2] = n;
-        for (let t = 0; t < this.#b.length; t++) {
-            const e = this.#b[t];
-            this.#S[t][0] = this.#V[e[0]],
-            this.#S[t][1] = this.#V[e[1]]
-        }
-        return this.#S
+        return this.#y
     }
-    #_(t, e) {
+    #K(t, e, i) {
         const a = t.GetTimes()
-          , i = t.GetValues()
-          , s = i.length / a.length;
+          , s = t.GetValues()
+          , n = t.GetInterpolation();
         let r = 0;
         for (; r < a.length - 1 && e > a[r + 1]; )
             r++;
-        if (r >= a.length - 1)
-            return i.slice(i.length - s);
-        const n = a[r]
-          , o = (e - n) / (a[r + 1] - n)
-          , h = i.slice(r * s, (r + 1) * s)
-          , l = i.slice((r + 1) * s, (r + 2) * s);
-        return 3 === s ? h.map( (t, e) => t * (1 - o) + l[e] * o) : 4 === s ? (C3.quatFromArray(this.#w, h),
-        C3.quatFromArray(this.#B, l),
-        quat.slerp(this.#T, this.#w, this.#B, o),
-        this.#T) : void 0
-    }
-    #$() {
-        if (this.#N)
-            return this.#N;
-        const t = this.#t.IsSkinned() ? this.GetSkinnedVertexData() : this.GetWorldVertexData();
-        let e = 1 / 0
-          , a = 1 / 0
-          , i = 1 / 0
-          , s = -1 / 0
-          , r = -1 / 0
-          , n = -1 / 0;
-        for (let o = 0; o < t.length; o += 3) {
-            const h = t[o]
-              , l = t[o + 1]
-              , m = t[o + 2];
-            h < e && (e = h),
-            l < a && (a = l),
-            m < i && (i = m),
-            h > s && (s = h),
-            l > r && (r = l),
-            m > n && (n = m)
+        const o = r >= a.length - 1;
+        let h;
+        switch ("quaternion" === i ? (this.#V || (this.#V = quat.create()),
+        h = this.#V) : (this.#S || (this.#S = vec3.create()),
+        h = this.#S),
+        n) {
+        case t.constructor.STEP_INTERPOLATION:
+            {
+                const t = s.length / a.length
+                  , e = (o ? a.length - 1 : r) * t;
+                for (let i = 0; i < t; i++)
+                    h[i] = s[e + i];
+                return h
+            }
+        case t.constructor.CUBIC_SPLINE_INTERPOLATION:
+            {
+                const t = s.length / a.length
+                  , i = t / 3
+                  , n = o ? a.length - 1 : r
+                  , l = Math.min(n + 1, a.length - 1)
+                  , u = a[n]
+                  , m = a[l] - u
+                  , d = o ? 0 : (e - u) / m
+                  , c = n * t
+                  , x = l * t
+                  , M = c + i
+                  , D = c + 2 * i
+                  , g = x
+                  , N = x + i
+                  , f = d * d
+                  , A = f * d
+                  , p = 2 * A - 3 * f + 1
+                  , T = A - 2 * f + d
+                  , b = -2 * A + 3 * f
+                  , G = A - f;
+                for (let t = 0; t < i; t++) {
+                    const e = s[M + t]
+                      , i = s[N + t]
+                      , a = s[D + t]
+                      , n = s[g + t];
+                    h[t] = p * e + T * m * a + b * i + G * m * n
+                }
+                return 4 === i && quat.normalize(h, h),
+                h
+            }
+        case t.constructor.LINEAR_INTERPOLATION:
+        default:
+            {
+                const t = s.length / a.length
+                  , i = o ? a.length - 1 : r
+                  , n = Math.min(i + 1, a.length - 1)
+                  , l = a[i]
+                  , u = a[n]
+                  , m = o ? 0 : (e - l) / (u - l)
+                  , d = i * t
+                  , c = n * t;
+                if (4 !== t) {
+                    for (let e = 0; e < t; e++) {
+                        const t = s[d + e]
+                          , i = s[c + e];
+                        h[e] = t + (i - t) * m
+                    }
+                    return h
+                }
+                return C3.quatFromArray(this.#C, s, d),
+                C3.quatFromArray(this.#B, s, c),
+                quat.slerp(h, this.#C, this.#B, m),
+                h
+            }
         }
-        const o = (e + s) / 2
-          , h = (a + r) / 2
-          , l = (i + n) / 2
-          , m = s - e
-          , u = r - a
-          , d = n - i
-          , c = Math.max(m, u, d)
-          , x = 1 / c
-          , D = mat4.create();
-        C3.makeScaleMatrix(mat4, D, x, x, x);
-        const M = mat4.create();
-        return C3.makeTranslateMatrix(mat4, M, -o, -h, -l),
-        this.#N = mat4.multiply(mat4.create(), D, M),
-        this.#g = {
-            x: m / c,
-            y: u / c,
-            z: d / c
-        },
-        this.#p = mat4.create(),
-        C3.makeTranslateMatrix(mat4, this.#p, 0, 0, .5 * this.#g.z),
-        this.#N
     }
     #et() {
-        return this.#$(),
-        this.#g
+        let t;
+        if (this.#s.GetCurrentMeshes() ? (this.#g.has(this.#s.GetCurrentMeshes()) || (this.#g.clear(),
+        this.#N = null),
+        t = this.#s.GetCurrentMeshes(),
+        this.#g.add(t)) : (this.#g.has(this) || (this.#g.clear(),
+        this.#N = null),
+        t = [this],
+        this.#g.add(this)),
+        !this.#N) {
+            let e = 1 / 0
+              , i = -1 / 0
+              , a = 1 / 0
+              , s = -1 / 0
+              , n = 1 / 0
+              , r = -1 / 0;
+            for (const o of t) {
+                let t;
+                t = o.IsSkinned() ? o.GetSkinnedVertexData() : o.GetWorldVertexData();
+                for (let o = 0; o < t.length; o += 3) {
+                    const h = t[o]
+                      , l = t[o + 1]
+                      , u = t[o + 2];
+                    h < e && (e = h),
+                    l < a && (a = l),
+                    u < n && (n = u),
+                    h > i && (i = h),
+                    l > s && (s = l),
+                    u > r && (r = u)
+                }
+            }
+            const o = (e + i) / 2
+              , h = (a + s) / 2
+              , l = (n + r) / 2
+              , u = i - e
+              , m = s - a
+              , d = r - n
+              , c = Math.max(u, m, d)
+              , x = 1 / c
+              , M = mat4.create();
+            C3.makeScaleMatrix(mat4, M, x, x, x);
+            const D = mat4.create();
+            C3.makeTranslateMatrix(mat4, D, -o, -h, -l),
+            this.#N = mat4.multiply(mat4.create(), M, D),
+            this.#f = {
+                x: u / c,
+                y: m / c,
+                z: d / c
+            }
+        }
+        const e = this.#s.GetOptions();
+        if ((e.refreshOrigin || !this.#A) && this.#f) {
+            this.#A || (this.#A = mat4.create());
+            const t = e.origin[0]
+              , i = e.origin[1]
+              , a = e.origin[2];
+            C3.makeTranslateMatrix(mat4, this.#A, this.#f.x * t, this.#f.y * i, this.#f.z * a)
+        }
+        return this.#N
     }
-    #tt() {
-        return this.#$(),
-        this.#p
+    #at() {
+        return this.#et(),
+        this.#f
+    }
+    #it() {
+        return this.#et(),
+        this.#A
     }
 }
 ;

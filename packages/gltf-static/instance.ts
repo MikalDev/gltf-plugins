@@ -773,7 +773,7 @@ class EditorGltfModel {
 				modelLoadLog(`Texture ${textureIndex}: calling CreateDynamicTexture(${imgWidth}, ${imgHeight})`);
 
 				const tex = renderer.CreateDynamicTexture(imgWidth, imgHeight, {
-					sampling: "bilinear",
+					defaultSampling: "bilinear",
 					mipMap: false,
 					wrapX: "repeat",
 					wrapY: "repeat"
