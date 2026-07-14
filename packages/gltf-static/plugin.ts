@@ -24,6 +24,10 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 		this._info.SetMustPreDraw(false);
 		this._info.SetIs3D(true);
 		this._info.SetSupportsZElevation(true);
+		// Show C3's common 3D-rotation parameter/gizmo in the editor (as the
+		// built-in 3D Model plugin does). Rotation is stored on the instance's
+		// built-in 3D rotation, which the runtime already reads via getQuaternion().
+		this._info.SetIsRotatable3D(true);
 		this._info.SetRuntimeModuleMainScript("c3runtime/main.js");
 		this._info.AddC3RuntimeScript("c3runtime/builtin-models.js");
 		this._info.AddC3RuntimeScript("c3runtime/gltf-bundle.js");

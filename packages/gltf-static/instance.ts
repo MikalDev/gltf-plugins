@@ -24,6 +24,21 @@ const PROP_CONVERT_AXES = "convert-axes";
 // Degrees to radians conversion
 const DEG_TO_RAD = Math.PI / 180;
 
+/** Quaternion [x,y,z,w] -> row-major 3x3 rotation matrix (v' = R*v), matching
+ *  gl-matrix mat4.fromQuat so the editor applies the same rotation as the runtime. */
+function quatToMat3(q: [number, number, number, number]): number[] {
+	const x = q[0], y = q[1], z = q[2], w = q[3];
+	const x2 = x + x, y2 = y + y, z2 = z + z;
+	const xx = x * x2, xy = x * y2, xz = x * z2;
+	const yy = y * y2, yz = y * z2, zz = z * z2;
+	const wx = w * x2, wy = w * y2, wz = w * z2;
+	return [
+		1 - (yy + zz), xy - wz,       xz + wy,
+		xy + wz,       1 - (xx + zz), yz - wx,
+		xz - wy,       yz + wx,       1 - (xx + yy)
+	];
+}
+
 // Model loading debug logging
 const modelLoadDebug = true;
 const LOG_PREFIX = "[GltfStaticEditor]";
@@ -1111,12 +1126,7 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const isBuiltin = this._lastModelUrl.startsWith("builtin:");
 		const applyConvertAxes = convertAxes && !isBuiltin;
 		const flipY = applyConvertAxes ? -1 : 1;
-		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
-		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
-		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
-		const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-		const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-		const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+		const r = quatToMat3(this._getRotationQuat());
 		const corners: [number, number, number][] = [
 			[min[0], min[1], min[2]], [min[0], min[1], max[2]],
 			[min[0], max[1], min[2]], [min[0], max[1], max[2]],
@@ -1129,16 +1139,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			let px = (corner[0] - lc[0]) * scale;
 			let py = (corner[1] - lc[1]) * flipY * scale;
 			let pz = (corner[2] - lc[2]) * scale;
-			// Rotate Z, then Y, then X — same order as the mesh vertex transform
-			let temp = px;
-			px = px * cosZ - py * sinZ;
-			py = temp * sinZ + py * cosZ;
-			temp = px;
-			px = px * cosY + pz * sinY;
-			pz = -temp * sinY + pz * cosY;
-			temp = py;
-			py = py * cosX - pz * sinX;
-			pz = temp * sinX + pz * cosX;
+			// Rotate by the instance quaternion (the same rotation the runtime applies).
+			const rpx = r[0] * px + r[1] * py + r[2] * pz;
+			const rpy = r[3] * px + r[4] * py + r[5] * pz;
+			const rpz = r[6] * px + r[7] * py + r[8] * pz;
+			px = rpx; py = rpy; pz = rpz;
 			if (px < minX) minX = px;
 			if (px > maxX) maxX = px;
 			if (py < minY) minY = py;
@@ -1165,6 +1170,18 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 	}
 
 	/**
+	 * The instance's 3D rotation as a quaternion [x,y,z,w], from C3's built-in 3D
+	 * rotation (the editor gizmo, enabled via SetIsRotatable3D) so the preview
+	 * matches the runtime. Identity if the editor SDK doesn't expose GetQuaternion.
+	 */
+	_getRotationQuat(): [number, number, number, number]
+	{
+		const inst = this._inst as unknown as { GetQuaternion?: () => number[] };
+		const q = inst.GetQuaternion?.();
+		return (q && q.length >= 4) ? [q[0], q[1], q[2], q[3]] : [0, 0, 0, 1];
+	}
+
+	/**
 	 * Build transform key for cache invalidation
 	 */
 	_getTransformKey(): string
@@ -1175,13 +1192,11 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const w = this._inst.GetWidth();
 		const h = this._inst.GetHeight();
 		const angle = this._inst.GetAngle();
-		const rotX = (this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0;
-		const rotY = (this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0;
-		const rotZ = (this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0;
+		const q = this._getRotationQuat();
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 		const convertAxes = (this._inst.GetPropertyValue(PROP_CONVERT_AXES) as boolean) ? 1 : 0;
 
-		return `${x},${y},${z},${w},${h},${angle},${rotX},${rotY},${rotZ},${scale},${convertAxes}`;
+		return `${x},${y},${z},${w},${h},${angle},${q[0]},${q[1]},${q[2]},${q[3]},${scale},${convertAxes}`;
 	}
 
 	/**
@@ -1202,17 +1217,14 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const y = this._inst.GetY();
 		const z = (this._inst as any).GetZ();
 		const angle = this._inst.GetAngle();
-		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
-		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
-		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 
-		// Build 4x4 transform matrix
-		// Order: Scale -> Axis Convert -> 3D Rotations -> 2D Angle -> Translation
+		// Rotation: use the instance quaternion (C3's built-in 3D rotation when the
+		// editor exposes GetQuaternion, else derived from the legacy properties) so the
+		// preview matches the runtime. Order: Scale -> Axis Convert -> Quat -> 2D Angle
+		// -> Translation. The 2D layout angle is applied separately below.
 		const cosA = Math.cos(angle), sinA = Math.sin(angle);
-		const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-		const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-		const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+		const r = quatToMat3(this._getRotationQuat());
 
 		// Axis conversion (glTF Y-up → C3 Y-down) applies to glTF models only.
 		const convertAxes = (this._inst.GetPropertyValue(PROP_CONVERT_AXES) as boolean) ?? false;
@@ -1239,16 +1251,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			let cx = (c[0] - lc[0]) * scale;
 			let cy = (c[1] - lc[1]) * flipYForBounds * scale;
 			let cz = (c[2] - lc[2]) * scale;
-			let t = cx;
-			cx = cx * cosZ - cy * sinZ;
-			cy = t * sinZ + cy * cosZ;
-			t = cx;
-			cx = cx * cosY + cz * sinY;
-			cz = -t * sinY + cz * cosY;
-			t = cy;
-			cy = cy * cosX - cz * sinX;
-			cz = t * sinX + cz * cosX;
-			if (cz > hdMaxZ) hdMaxZ = cz;
+			const rcz = r[6] * cx + r[7] * cy + r[8] * cz;
+			if (rcz > hdMaxZ) hdMaxZ = rcz;
 		}
 		const halfDepth = hdMaxZ; // centrosymmetric about 0, so maxZ === halfDepth
 
@@ -1271,26 +1275,14 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				// matching runtime: T * Rangle * Rx * Ry * Rz * M_axis * S
 				if (applyConvertAxes) py = -py;
 
-				// Apply rotations in reverse order to match runtime matrix multiplication
-				// So we apply: Z first, then Y, then X, then angle
-
-				// Rotate around Z axis (3D rotation property)
-				let temp = px;
-				px = px * cosZ - py * sinZ;
-				py = temp * sinZ + py * cosZ;
-
-				// Rotate around Y axis
-				temp = px;
-				px = px * cosY + pz * sinY;
-				pz = -temp * sinY + pz * cosY;
-
-				// Rotate around X axis
-				temp = py;
-				py = py * cosX - pz * sinX;
-				pz = temp * sinX + pz * cosX;
+				// Rotate by the instance quaternion (same rotation the runtime applies).
+				const rvx = r[0] * px + r[1] * py + r[2] * pz;
+				const rvy = r[3] * px + r[4] * py + r[5] * pz;
+				const rvz = r[6] * px + r[7] * py + r[8] * pz;
+				px = rvx; py = rvy; pz = rvz;
 
 				// Apply 2D angle rotation
-				temp = px;
+				let temp = px;
 				px = px * cosA - py * sinA;
 				py = temp * sinA + py * cosA;
 
@@ -1310,25 +1302,14 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 					// Same Y-flip applies to normals (matrix's upper-left 3x3)
 					if (applyConvertAxes) ny = -ny;
 
-					// Apply same rotations as positions
-
-					// Rotate around Z axis
-					temp = nx;
-					nx = nx * cosZ - ny * sinZ;
-					ny = temp * sinZ + ny * cosZ;
-
-					// Rotate around Y axis
-					temp = nx;
-					nx = nx * cosY + nz * sinY;
-					nz = -temp * sinY + nz * cosY;
-
-					// Rotate around X axis
-					temp = ny;
-					ny = ny * cosX - nz * sinX;
-					nz = temp * sinX + nz * cosX;
+					// Rotate normals by the same instance quaternion.
+					const rnx = r[0] * nx + r[1] * ny + r[2] * nz;
+					const rny = r[3] * nx + r[4] * ny + r[5] * nz;
+					const rnz = r[6] * nx + r[7] * ny + r[8] * nz;
+					nx = rnx; ny = rny; nz = rnz;
 
 					// Apply 2D angle rotation
-					temp = nx;
+					let temp = nx;
 					nx = nx * cosA - ny * sinA;
 					ny = temp * sinA + ny * cosA;
 

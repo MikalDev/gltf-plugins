@@ -76,6 +76,7 @@
 			{
 				"id": "set-rotation",
 				"scriptName": "SetRotation",
+				"isDeprecated": true,
 				"highlight": false,
 				"params": [
 					{
@@ -210,6 +211,7 @@
 			{
 				"id": "set-rotation-quaternion",
 				"scriptName": "SetRotationQuaternion",
+				"isDeprecated": true,
 				"highlight": false,
 				"params": [
 					{
@@ -221,6 +223,7 @@
 			{
 				"id": "set-rotation-quaternion-xyzw",
 				"scriptName": "SetRotationQuaternionXYZW",
+				"isDeprecated": true,
 				"highlight": false,
 				"params": [
 					{
@@ -377,26 +380,31 @@
 			{
 				"id": "rotation-quaternion",
 				"expressionName": "RotationQuaternion",
+				"isDeprecated": true,
 				"returnType": "string"
 			},
 			{
 				"id": "quat-x",
 				"expressionName": "QuatX",
+				"isDeprecated": true,
 				"returnType": "number"
 			},
 			{
 				"id": "quat-y",
 				"expressionName": "QuatY",
+				"isDeprecated": true,
 				"returnType": "number"
 			},
 			{
 				"id": "quat-z",
 				"expressionName": "QuatZ",
+				"isDeprecated": true,
 				"returnType": "number"
 			},
 			{
 				"id": "quat-w",
 				"expressionName": "QuatW",
+				"isDeprecated": true,
 				"returnType": "number"
 			},
 			{

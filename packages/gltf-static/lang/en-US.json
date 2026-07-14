@@ -29,15 +29,15 @@
 					},
 					"rotation-x": {
 						"name": "Initial rotation X",
-						"desc": "Initial X rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
+						"desc": "Initial X rotation in degrees, applied on creation. Use the 3D rotation handles or rotation actions/behaviors to change it afterward."
 					},
 					"rotation-y": {
 						"name": "Initial rotation Y",
-						"desc": "Initial Y rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
+						"desc": "Initial Y rotation in degrees, applied on creation. Use the 3D rotation handles or rotation actions/behaviors to change it afterward."
 					},
 					"rotation-z": {
 						"name": "Initial rotation Z",
-						"desc": "Initial Z rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
+						"desc": "Initial Z rotation in degrees, applied on creation. Use the 3D rotation handles or rotation actions/behaviors to change it afterward."
 					},
 					"scale": {
 						"name": "Scale",
