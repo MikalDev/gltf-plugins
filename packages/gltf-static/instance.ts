@@ -218,6 +218,7 @@ class EditorGltfModel {
 	private _meshes: EditorMeshData[] = [];
 	private _images: ImageBitmap[] = [];
 	private _isLoaded: boolean = false;
+	private _localCenter: [number, number, number] | null = null;
 
 	// Shared textures (created on first draw, reused by all instances)
 	private _textures: SDK.Gfx.IWebGLTexture[] = [];
@@ -266,6 +267,25 @@ class EditorGltfModel {
 		}
 
 		return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+	}
+
+	/**
+	 * Bounding-box center of the raw model, cached after first access. Mirrors the
+	 * runtime's model.localCenter, which is subtracted from every vertex before
+	 * scale/rotation/translation so the model's bbox center lands on the instance's
+	 * X/Y/Z. The editor previously never applied this, drawing models whose glTF
+	 * origin sits at a corner/base offset from where they render at runtime.
+	 */
+	get localCenter(): [number, number, number] {
+		if (!this._localCenter) {
+			const { min, max } = this.computeBoundingBox();
+			this._localCenter = [
+				(min[0] + max[0]) * 0.5,
+				(min[1] + max[1]) * 0.5,
+				(min[2] + max[2]) * 0.5
+			];
+		}
+		return this._localCenter;
 	}
 
 	/**
@@ -1082,14 +1102,64 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const scale = (this._inst.GetPropertyValue(PROP_SCALE) as number) ?? 1;
 		const bboxScale = (this._inst.GetPropertyValue(PROP_BBOX_SCALE) as number) ?? 1;
 
-		const w = (max[0] - min[0]) * scale * bboxScale;
-		const h = (max[1] - min[1]) * scale * bboxScale;
-		const d = (max[2] - min[2]) * scale * bboxScale;
+		// Rotation-aware AABB: rebuild the box from all 8 rotated bbox corners using
+		// the same T(-localCenter) -> axis-flip -> scale -> rotate(Z,Y,X) chain as the
+		// runtime and _updateTransformedMeshes (2D layout angle excluded, same as
+		// runtime). Keeps the selection box rotating with, and centered on, the model.
+		const lc = this._model.localCenter;
+		const convertAxes = (this._inst.GetPropertyValue(PROP_CONVERT_AXES) as boolean) ?? false;
+		const isBuiltin = this._lastModelUrl.startsWith("builtin:");
+		const applyConvertAxes = convertAxes && !isBuiltin;
+		const flipY = applyConvertAxes ? -1 : 1;
+		const rotX = ((this._inst.GetPropertyValue(PROP_ROTATION_X) as number) ?? 0) * DEG_TO_RAD;
+		const rotY = ((this._inst.GetPropertyValue(PROP_ROTATION_Y) as number) ?? 0) * DEG_TO_RAD;
+		const rotZ = ((this._inst.GetPropertyValue(PROP_ROTATION_Z) as number) ?? 0) * DEG_TO_RAD;
+		const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+		const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+		const cosZ = Math.cos(rotZ), sinZ = Math.sin(rotZ);
+		const corners: [number, number, number][] = [
+			[min[0], min[1], min[2]], [min[0], min[1], max[2]],
+			[min[0], max[1], min[2]], [min[0], max[1], max[2]],
+			[max[0], min[1], min[2]], [max[0], min[1], max[2]],
+			[max[0], max[1], min[2]], [max[0], max[1], max[2]]
+		];
+		let minX = Infinity, minY = Infinity, minZ = Infinity;
+		let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+		for (const corner of corners) {
+			let px = (corner[0] - lc[0]) * scale;
+			let py = (corner[1] - lc[1]) * flipY * scale;
+			let pz = (corner[2] - lc[2]) * scale;
+			// Rotate Z, then Y, then X — same order as the mesh vertex transform
+			let temp = px;
+			px = px * cosZ - py * sinZ;
+			py = temp * sinZ + py * cosZ;
+			temp = px;
+			px = px * cosY + pz * sinY;
+			pz = -temp * sinY + pz * cosY;
+			temp = py;
+			py = py * cosX - pz * sinX;
+			pz = temp * sinX + pz * cosX;
+			if (px < minX) minX = px;
+			if (px > maxX) maxX = px;
+			if (py < minY) minY = py;
+			if (py > maxY) maxY = py;
+			if (pz < minZ) minZ = pz;
+			if (pz > maxZ) maxZ = pz;
+		}
+		const w = (maxX - minX) * bboxScale;
+		const h = (maxY - minY) * bboxScale;
+		const d = (maxZ - minZ) * bboxScale;
 
 		this._inst.SetSize(w, h);
 		// SetDepth not yet in SDK type defs (available in C3 r472+)
 		if ("SetDepth" in this._inst)
 			(this._inst as SDK.IWorldInstance & { SetDepth(d: number): void }).SetDepth(d);
+
+		// Keep the origin centered on the model (matches runtime setOrigin). The AABB
+		// above is centrosymmetric about localCenter, so this is always (0.5, 0.5);
+		// without it the editor keeps the object type's default image origin.
+		if ("SetOrigin" in this._inst)
+			(this._inst as SDK.IWorldInstance & { SetOrigin(x: number, y: number): void }).SetOrigin(0.5, 0.5);
 
 		this._lastAutoSize = { w, h, d };
 	}
@@ -1149,6 +1219,39 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		const isBuiltin = this._lastModelUrl.startsWith("builtin:");
 		const applyConvertAxes = convertAxes && !isBuiltin;
 
+		// Subtract localCenter before scale/rotation/translation (matches runtime
+		// T(-localCenter)). Scale and the axis-flip are diagonal, so subtracting in
+		// raw model space here is equivalent to the runtime's matrix order.
+		const lc = this._model.localCenter;
+		// halfDepth via the same rotated 8-corner AABB as _updateEditorBounds, so the
+		// mesh base-anchors on Z to match the runtime. Deliberately NOT scaled by
+		// bboxScale — bboxScale only pads the box, it must not move the visible mesh.
+		const { min: bbMin, max: bbMax } = this._model.computeBoundingBox();
+		const flipYForBounds = applyConvertAxes ? -1 : 1;
+		const halfDepthCorners: [number, number, number][] = [
+			[bbMin[0], bbMin[1], bbMin[2]], [bbMin[0], bbMin[1], bbMax[2]],
+			[bbMin[0], bbMax[1], bbMin[2]], [bbMin[0], bbMax[1], bbMax[2]],
+			[bbMax[0], bbMin[1], bbMin[2]], [bbMax[0], bbMin[1], bbMax[2]],
+			[bbMax[0], bbMax[1], bbMin[2]], [bbMax[0], bbMax[1], bbMax[2]]
+		];
+		let hdMaxZ = -Infinity;
+		for (const c of halfDepthCorners) {
+			let cx = (c[0] - lc[0]) * scale;
+			let cy = (c[1] - lc[1]) * flipYForBounds * scale;
+			let cz = (c[2] - lc[2]) * scale;
+			let t = cx;
+			cx = cx * cosZ - cy * sinZ;
+			cy = t * sinZ + cy * cosZ;
+			t = cx;
+			cx = cx * cosY + cz * sinY;
+			cz = -t * sinY + cz * cosY;
+			t = cy;
+			cy = cy * cosX - cz * sinX;
+			cz = t * sinX + cz * cosX;
+			if (cz > hdMaxZ) hdMaxZ = cz;
+		}
+		const halfDepth = hdMaxZ; // centrosymmetric about 0, so maxZ === halfDepth
+
 		for (const mesh of this._model.meshes)
 		{
 			const srcPos = mesh.positions;
@@ -1159,9 +1262,10 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 			for (let i = 0; i < mesh.vertexCount; i++)
 			{
 				const idx = i * 3;
-				let px = srcPos[idx] * scale;
-				let py = srcPos[idx + 1] * scale;
-				let pz = srcPos[idx + 2] * scale;
+				// Subtract localCenter in raw model space before scale (matches runtime).
+				let px = (srcPos[idx] - lc[0]) * scale;
+				let py = (srcPos[idx + 1] - lc[1]) * scale;
+				let pz = (srcPos[idx + 2] - lc[2]) * scale;
 
 				// Axis conversion (Y-flip) sits between scale and rotation chain,
 				// matching runtime: T * Rangle * Rx * Ry * Rz * M_axis * S
@@ -1193,7 +1297,8 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 				// Translate
 				dstPos[idx] = px + x;
 				dstPos[idx + 1] = py + y;
-				dstPos[idx + 2] = pz + z;
+				// + halfDepth so the model's base (not its center) lands on z.
+				dstPos[idx + 2] = pz + z + halfDepth;
 
 				// Transform normals (rotation only, no translation or scale)
 				if (srcNormals && dstNormals)
@@ -1541,8 +1646,9 @@ PLUGIN_CLASS.Instance = class GltfStaticEditorInstance extends SDK.IWorldInstanc
 		{
 			this._lastTransformKey = "";
 
-			if (id === PROP_SCALE)
-				this._updateEditorBounds();
+			// _updateEditorBounds is now rotation-aware, so recompute the selection box
+			// for any transform property (previously only PROP_SCALE triggered it).
+			this._updateEditorBounds();
 		}
 
 		if (id === PROP_BBOX_SCALE)

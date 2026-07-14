@@ -141,11 +141,11 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	_worldBBoxMin: [number, number, number] = [0, 0, 0];
 	_worldBBoxMax: [number, number, number] = [0, 0, 0];
 
-	// V2 SDK has no setOriginZ, so C3's bbox always spans [totalZ, totalZ+depth].
-	// We compensate by shifting the raw z by _zCullShift (= lo[2]) so the back
-	// face of the bbox lands on the true back of the model. The z/totalZ
-	// accessor overrides hide this shift from user scripts.
-	_zCullShift: number = 0;
+	// Z is defined as the model's BASE, matching Construct's built-in
+	// [totalZ, totalZ+depth] convention (used by every built-in 3D plugin).
+	// _buildInstanceMatrix shifts the rendered mesh up by its geometric
+	// half-depth so the model's bottom lands exactly on totalZ, which means
+	// C3's built-in bbox already lines up — no cull-shift compensation needed.
 
 	// glTF (Y-up, right-handed) → C3 (Y-down) axis conversion
 	_convertAxes: boolean = false;
@@ -216,8 +216,25 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 				builtinModelType: this._builtinModelType
 			});
 
-			// Initialize quaternion from euler angles
+			// Seed C3's built-in 3D rotation from the legacy rotation-x/y/z
+			// properties (now "initial rotation"). Only do so when nothing has
+			// already set a rotation — an editor gizmo rotation or a loaded save
+			// arrives on the built-in quaternion before this constructor runs and
+			// must win over the seed. Otherwise adopt whatever is already there.
 			this._updateQuatFromEuler();
+			const nq = this.getQuaternion();
+			const nativeIsIdentity = nq[0] === 0 && nq[1] === 0 && nq[2] === 0 && Math.abs(nq[3]) === 1;
+			const seedIsNonZero = this._rotationX !== 0 || this._rotationY !== 0 || this._rotationZ !== 0;
+			if (nativeIsIdentity && seedIsNonZero)
+			{
+				const q = this._rotationQuat;
+				this.setQuaternion(q[0], q[1], q[2], q[3]);
+			}
+			else
+			{
+				// Built-in rotation already authoritative — mirror it into the cache.
+				this._syncQuatFromNative();
+			}
 
 			// Auto-load model: built-in model takes priority over URL
 			if (this._useBuiltinModel)
@@ -287,8 +304,14 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		mat4.identity(this._instanceMatrix);
 
-		// 1. T(position): translate to instance world position
-		vec3.set(tempVec, this.x, this.y, this.totalZ);
+		// 1. T(position): translate to instance world position.
+		// Shift up by the geometric half-depth so Z represents the model's BASE
+		// (matching Construct's built-in [Z, Z+Depth] box convention) instead of
+		// its center. Computed inline from the live rotation so it never lags
+		// externally-driven rotation, and excludes bboxScale (which only pads the
+		// cull box, not the visible mesh).
+		const halfDepth = this._computeGeomHalfDepth();
+		vec3.set(tempVec, this.x, this.y, this.totalZ + halfDepth);
 		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		// 2. R: apply C3 angle (Z rotation) first, then quaternion rotation
@@ -318,6 +341,59 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		mat4.translate(this._instanceMatrix, this._instanceMatrix, tempVec);
 
 		return this._instanceMatrix;
+	}
+
+	/**
+	 * Geometric half-depth (Z) of the model after axis-flip/scale/rotation, WITHOUT
+	 * bboxScale. Mirrors the Z extent computed in _recomputeWorldExtents (2D layout
+	 * angle excluded, same as the render matrix). The corner set is centered on
+	 * localCenter, so it is symmetric under negation and maxZ === halfDepth exactly.
+	 * Computed inline from the live quaternion so it never lags externally-driven
+	 * rotation (Billboard/physics/Tween) and stays independent of bboxScale — the
+	 * visible mesh must base-anchor on totalZ, while bboxScale only pads the cull box.
+	 */
+	_computeGeomHalfDepth(): number
+	{
+		if (!this._model?.isLoaded) return 0;
+
+		const min = this._model.boundingBoxMin;
+		const max = this._model.boundingBoxMax;
+		const lc = this._model.localCenter;
+		const flipY = this._shouldConvertAxes() ? -1 : 1;
+
+		const qx = this._rotationQuat[0];
+		const qy = this._rotationQuat[1];
+		const qz = this._rotationQuat[2];
+		const qw = this._rotationQuat[3];
+
+		const corners = [
+			[min[0], min[1], min[2]],
+			[min[0], min[1], max[2]],
+			[min[0], max[1], min[2]],
+			[min[0], max[1], max[2]],
+			[max[0], min[1], min[2]],
+			[max[0], min[1], max[2]],
+			[max[0], max[1], min[2]],
+			[max[0], max[1], max[2]]
+		];
+
+		let maxZ = -Infinity;
+		for (const corner of corners) {
+			// T(-lc), F (Y-flip when converting glTF Y-up -> C3 Y-down), S (per-axis scale)
+			const sx = (corner[0] - lc[0]) * this._scaleX;
+			const sy = (corner[1] - lc[1]) * flipY * this._scaleY;
+			const sz = (corner[2] - lc[2]) * this._scaleZ;
+
+			// Rotate by quaternion: v' = q * v * q^-1 (only rz is needed)
+			const ix = qw * sx + qy * sz - qz * sy;
+			const iy = qw * sy + qz * sx - qx * sz;
+			const iz = qw * sz + qx * sy - qy * sx;
+			const iw = -qx * sx - qy * sy - qz * sz;
+
+			const rz = iz * qw + iw * -qz + ix * -qy - iy * -qx;
+			if (rz > maxZ) maxZ = rz;
+		}
+		return maxZ;
 	}
 
 	/** True when the instance should apply glTF→C3 axis conversion. Built-ins skip. */
@@ -362,15 +438,39 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._lastTickX = NaN;
 	}
 
+	/**
+	 * Refresh the local quaternion cache from C3's built-in 3D rotation.
+	 * The native quaternion (driven by the rotation gizmo, the common 3D
+	 * rotation ACEs, scripting, and behaviors like Billboard/physics/Tween/
+	 * timelines) is the single source of truth; `_rotationQuat` is a per-tick
+	 * read cache that the matrix/extent/bone math reads from.
+	 */
+	_syncQuatFromNative(): void
+	{
+		const q = this.getQuaternion();
+		this._rotationQuat[0] = q[0];
+		this._rotationQuat[1] = q[1];
+		this._rotationQuat[2] = q[2];
+		this._rotationQuat[3] = q[3];
+	}
+
 	_pushTransformIfChanged(): void
 	{
 		if (!this._model?.isLoaded) return;
+		// Pull in any rotation written to the built-in 3D rotation this frame
+		// (physics/Billboard/Tween/timeline/scripting) before the dirty check.
+		this._syncQuatFromNative();
+		const q = this._rotationQuat, lq = this._lastTickQuat;
+		const rotChanged = q[0] !== lq[0] || q[1] !== lq[1] || q[2] !== lq[2] || q[3] !== lq[3];
 		if (!this._transformFieldsChanged()) return;
 		this._buildInstanceMatrix();
 		// Animation-safe push: re-anchors skinned meshes instead of overwriting
 		// them with bind-pose data (which froze animation in a T-pose), while
 		// staying synchronous so position never lags the instance.
 		this._model.pushInstanceTransform(this._instanceMatrix);
+		// External rotation drivers bypass our setters, so recompute the
+		// world-space AABB extents here when the rotation changed.
+		if (rotChanged) this._recomputeWorldExtents();
 		this._cacheTransformFields();
 	}
 
@@ -435,7 +535,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			return;
 		}
 
-		// Always rebuild instance matrix from current TRS — no dirty check
+		// Always rebuild instance matrix from current TRS — no dirty check.
+		// Refresh the rotation cache first so animated models pick up rotation
+		// written to the built-in 3D rotation (physics/Billboard/Tween/timeline).
+		this._syncQuatFromNative();
 		this._buildInstanceMatrix();
 
 		// Update per-light occlusion via physics raycast (reads last tick's results, fires new ones)
@@ -928,19 +1031,28 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// else: not ready yet — render nothing
 	}
 
-	// Getters for model state
+	// Getters for model state.
+	// Euler values are derived from the live built-in 3D rotation so they stay
+	// correct even when an external driver (physics/Billboard/Tween) rotated
+	// the model. Extraction can hit gimbal lock; the quaternion is exact.
 	_getRotationX(): number
 	{
+		this._syncQuatFromNative();
+		this._updateEulerFromQuat();
 		return this._rotationX;
 	}
 
 	_getRotationY(): number
 	{
+		this._syncQuatFromNative();
+		this._updateEulerFromQuat();
 		return this._rotationY;
 	}
 
 	_getRotationZ(): number
 	{
+		this._syncQuatFromNative();
+		this._updateEulerFromQuat();
 		return this._rotationZ;
 	}
 
@@ -949,8 +1061,13 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._rotationX = x;
 		this._rotationY = y;
 		this._rotationZ = z;
-		// Keep quaternion in sync
+		// Build the quaternion with our editor-matching euler order, then push it
+		// to C3's built-in 3D rotation (the single source of truth). We use our
+		// own euler→quat (not native setRotationEuler) so this legacy ACE keeps
+		// producing the exact same pose as before the migration.
 		this._updateQuatFromEuler();
+		const q = this._rotationQuat;
+		this.setQuaternion(q[0], q[1], q[2], q[3]);
 		// Update C3 bounds (rotation affects world-space AABB)
 		this._updateInstanceBounds();
 	}
@@ -1002,6 +1119,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// Normalize to ensure valid rotation
 		quat.normalize(this._rotationQuat, this._rotationQuat);
 
+		// Push to C3's built-in 3D rotation (the single source of truth).
+		const q = this._rotationQuat;
+		this.setQuaternion(q[0], q[1], q[2], q[3]);
+
 		// Update euler angles to stay in sync (approximate, may have gimbal lock issues)
 		this._updateEulerFromQuat();
 
@@ -1034,6 +1155,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_getRotationQuaternion(): [number, number, number, number]
 	{
+		this._syncQuatFromNative();
 		return [
 			this._rotationQuat[0],
 			this._rotationQuat[1],
@@ -1047,6 +1169,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_getRotationQuaternionJson(): string
 	{
+		this._syncQuatFromNative();
 		return JSON.stringify({
 			x: this._rotationQuat[0],
 			y: this._rotationQuat[1],
@@ -1091,10 +1214,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	/**
 	 * Get individual quaternion components for expressions.
 	 */
-	_getQuatX(): number { return this._rotationQuat[0]; }
-	_getQuatY(): number { return this._rotationQuat[1]; }
-	_getQuatZ(): number { return this._rotationQuat[2]; }
-	_getQuatW(): number { return this._rotationQuat[3]; }
+	_getQuatX(): number { this._syncQuatFromNative(); return this._rotationQuat[0]; }
+	_getQuatY(): number { this._syncQuatFromNative(); return this._rotationQuat[1]; }
+	_getQuatZ(): number { this._syncQuatFromNative(); return this._rotationQuat[2]; }
+	_getQuatW(): number { this._syncQuatFromNative(); return this._rotationQuat[3]; }
 
 	// Scale getters - GPU data stays static, only transform matrix changes
 	_getScaleX(): number
@@ -2128,6 +2251,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	get quaternion(): { x: number; y: number; z: number; w: number }
 	{
+		this._syncQuatFromNative();
 		return {
 			x: this._rotationQuat[0],
 			y: this._rotationQuat[1],
@@ -2289,48 +2413,14 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		this._worldBBoxMax[2] = worldMaxZ * bs;
 	}
 
-	// Hide the cull-shift from user scripts: public z/totalZ/getPosition3d
-	// return the user-set value; setters re-apply the shift. Behaviors that
-	// reach WorldInfo directly (bypassing the script interface) still see the
-	// shifted raw value — fine, the shift is constant per tick.
-	//
-	// IWorldInstance's z/totalZ are declared as fields in the .d.ts but are real
-	// accessors at runtime (verified via prototype probe). TS won't compile
-	// `super.z` against a field, hence the ts-expect-error pragmas.
-	// @ts-expect-error overriding inherited field-typed accessor
-	get z(): number {
-		// @ts-expect-error runtime accessor on proto chain
-		return super.z - this._zCullShift;
-	}
-	set z(v: number) {
-		// @ts-expect-error runtime accessor on proto chain
-		super.z = v + this._zCullShift;
-	}
-
-	// @ts-expect-error overriding inherited field-typed accessor
-	get totalZ(): number {
-		// @ts-expect-error runtime accessor on proto chain
-		return super.totalZ - this._zCullShift;
-	}
-
-	setPosition3d(x: number, y: number, z: number): void {
-		super.setPosition3d(x, y, z + this._zCullShift);
-	}
-
-	getPosition3d(): Vec3Arr {
-		const p = super.getPosition3d();
-		return [p[0], p[1], p[2] - this._zCullShift];
-	}
-
 	/**
 	 * Push the cached world AABB to C3 via public V2 SDK setters.
 	 *
-	 * X/Y: tight, rotation-aware via setSize3d + setOrigin.
-	 * Z:   V2 has no setOriginZ, so C3 always uses [totalZ, totalZ+depth]. We
-	 *      shift the raw z by lo[2] so the back face lines up with the true
-	 *      model back. The z/totalZ accessor overrides hide this from user
-	 *      scripts; the setter inside this method bypasses through the same
-	 *      override and naturally writes the shifted raw value.
+	 * X/Y: tight, rotation-aware via setSize3d + setOrigin (no Z-origin exists in
+	 *      the V2 SDK, so X/Y still need the explicit setOrigin call).
+	 * Z:   No compensation needed. _buildInstanceMatrix base-anchors the rendered
+	 *      mesh (shifts it up by halfDepth), so the model's bottom already sits at
+	 *      totalZ and C3's built-in [totalZ, totalZ+depth] box is correct as-is.
 	 */
 	_pushAabbToWorldInfo(): void
 	{
@@ -2343,12 +2433,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		self.setSize3d(w, h, d);
 		self.setOrigin(-lo[0] / w, -lo[1] / h);
-
-		const delta = lo[2] - this._zCullShift;
-		if (delta !== 0) {
-			self.z = self.z + delta;
-			this._zCullShift = lo[2];
-		}
 	}
 
 	/**
@@ -2533,11 +2617,14 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_transformBoneToWorld(boneMatrix: Float32Array): [number, number, number]
 	{
+		this._syncQuatFromNative();
 		// Build object transform matrix (same as _buildModelViewMatrix but without camera MV)
 		const objectMatrix = mat4.create();
 
-		// 1. T(position)
-		vec3.set(tempVec, this.x, this.y, this.totalZ);
+		// 1. T(position). Match _buildInstanceMatrix's base-anchor halfDepth shift so
+		// bone/node world queries agree with where the mesh actually renders.
+		const halfDepth = this._computeGeomHalfDepth();
+		vec3.set(tempVec, this.x, this.y, this.totalZ + halfDepth);
 		mat4.translate(objectMatrix, objectMatrix, tempVec);
 
 		// 2. R: apply C3 angle first, then quaternion rotation
@@ -2613,6 +2700,7 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 	 */
 	_extractBoneRotation(boneMatrix: Float32Array): [number, number, number]
 	{
+		this._syncQuatFromNative();
 		// Build object rotation matrix (position/scale don't affect rotation extraction)
 		const objectMatrix = mat4.create();
 
@@ -3155,6 +3243,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 	_saveToJson(): JSONValue
 	{
+		// C3 serializes the built-in 3D rotation itself; we still persist the
+		// quaternion (mirrored from native) so older builds and our own
+		// migration path can restore rotation. Sync the cache first.
+		this._syncQuatFromNative();
 		return {
 			"modelUrl": this._modelUrl,
 			"rotationX": this._rotationX,
@@ -3196,6 +3288,15 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		{
 			this._updateQuatFromEuler();
 		}
+		// Push the restored rotation onto C3's built-in 3D rotation (the source of
+		// truth). Pre-migration saves carry no native rotation, so this is what
+		// preserves their pose; for newer saves it re-applies the same value.
+		// Set native directly (no bounds recompute — the model may not be loaded
+		// yet; the normal tick refreshes bounds once it is).
+		this.setQuaternion(
+			this._rotationQuat[0], this._rotationQuat[1],
+			this._rotationQuat[2], this._rotationQuat[3]
+		);
 		// Support both old uniform scale and new per-axis scale
 		if ("scaleX" in data)
 		{

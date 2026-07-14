@@ -30,6 +30,12 @@ const PLUGIN_CLASS = SDK.Plugins.GltfStatic = class GltfStaticPlugin extends SDK
 		this._info.AddCommonPositionACEs();
 		this._info.AddCommonSceneGraphACEs();
 		this._info.AddCommonZOrderACEs();
+		// r490: adopt C3's built-in 3D rotation as the source of truth. Adds the
+		// standard "Set Euler rotation"/quaternion ACEs and lets behaviors
+		// (Billboard, physics, Tween, timelines) drive the model's rotation. The
+		// runtime reads this via getQuaternion(); the legacy rotation-x/y/z
+		// properties remain as initial-rotation seeds for back-compat.
+		this._info.AddCommon3DRotationACEs();
 
 		SDK.Lang.PushContext(".properties");
 

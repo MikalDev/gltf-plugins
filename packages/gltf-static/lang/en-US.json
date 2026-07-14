@@ -28,16 +28,16 @@
 						"desc": "Select a glTF/GLB model file (.gltf or .glb) from the project."
 					},
 					"rotation-x": {
-						"name": "Rotation X",
-						"desc": "Initial X rotation of the model in degrees."
+						"name": "Initial rotation X",
+						"desc": "Initial X rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
 					},
 					"rotation-y": {
-						"name": "Rotation Y",
-						"desc": "Initial Y rotation of the model in degrees."
+						"name": "Initial rotation Y",
+						"desc": "Initial Y rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
 					},
 					"rotation-z": {
-						"name": "Rotation Z",
-						"desc": "Initial Z rotation of the model in degrees."
+						"name": "Initial rotation Z",
+						"desc": "Initial Z rotation seed in degrees. Applied once on creation; use the 3D rotation gizmo or rotation actions to drive rotation at runtime."
 					},
 					"scale": {
 						"name": "Scale",
@@ -735,18 +735,6 @@
 					}
 				},
 				"expressions": {
-					"rotation-x": {
-						"description": "Get the current X rotation.",
-						"translated-name": "RotationX"
-					},
-					"rotation-y": {
-						"description": "Get the current Y rotation.",
-						"translated-name": "RotationY"
-					},
-					"rotation-z": {
-						"description": "Get the current Z rotation.",
-						"translated-name": "RotationZ"
-					},
 					"scale-x": {
 						"description": "Get the current X scale factor.",
 						"translated-name": "ScaleX"

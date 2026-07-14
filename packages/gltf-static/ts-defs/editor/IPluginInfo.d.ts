@@ -59,6 +59,7 @@ declare namespace SDK {
 		AddCommonPositionACEs(): void;
 		AddCommonSizeACEs(): void;
 		AddCommonAngleACEs(): void;
+		AddCommon3DRotationACEs(): void;
 		AddCommonAppearanceACEs(): void;
 		AddCommonZOrderACEs(): void;
 		AddCommonSceneGraphACEs(): void;

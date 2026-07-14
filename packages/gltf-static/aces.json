@@ -324,21 +324,6 @@
 		],
 		"expressions": [
 			{
-				"id": "rotation-x",
-				"expressionName": "RotationX",
-				"returnType": "number"
-			},
-			{
-				"id": "rotation-y",
-				"expressionName": "RotationY",
-				"returnType": "number"
-			},
-			{
-				"id": "rotation-z",
-				"expressionName": "RotationZ",
-				"returnType": "number"
-			},
-			{
 				"id": "scale-x",
 				"expressionName": "ScaleX",
 				"returnType": "number"
