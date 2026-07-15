@@ -3,6 +3,7 @@
 // Run: node tests/test-transforms.js
 
 const { Worker } = require('worker_threads');
+const esbuild = require('esbuild');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,15 +11,39 @@ const path = require('path');
 const poolSourcePath = path.join(__dirname, '../c3runtime/gltf/TransformWorkerPool.ts');
 const poolSource = fs.readFileSync(poolSourcePath, 'utf8');
 
-// Extract the WORKER_CODE string from the source
-const workerCodeMatch = poolSource.match(/const WORKER_CODE = `([\s\S]*?)`;/);
+// Production assembles the worker source as:
+//   WORKER_CODE = LIGHTING_WORKER_CODE + `<worker body>`
+// where LIGHTING_WORKER_CODE is LightingCore.ts compiled to an IIFE by build.js.
+// Reproduce that here so these tests exercise the real thing, lighting included.
+const generatedPath = path.join(__dirname, '../c3runtime/gltf/generated/lightingWorkerCode.ts');
+if (!fs.existsSync(generatedPath)) {
+  console.error(`Missing generated worker code: ${generatedPath}\nRun \`npm run build\` first.`);
+  process.exit(1);
+}
+
+const generatedBuild = esbuild.buildSync({
+  entryPoints: [generatedPath],
+  bundle: true,
+  format: 'cjs',
+  platform: 'node',
+  write: false,
+  target: 'es2021'
+});
+const generatedModule = { exports: {} };
+new Function('module', 'exports', 'require', generatedBuild.outputFiles[0].text)(
+  generatedModule, generatedModule.exports, require
+);
+const { LIGHTING_WORKER_CODE } = generatedModule.exports;
+
+// Extract the worker body (the template literal that follows the generated code)
+const workerCodeMatch = poolSource.match(/const WORKER_CODE = LIGHTING_WORKER_CODE \+ `([\s\S]*?)`;/);
 if (!workerCodeMatch) {
-  console.error('Failed to extract WORKER_CODE from TransformWorkerPool.ts');
+  console.error('Failed to extract the worker body from TransformWorkerPool.ts');
   process.exit(1);
 }
 
 // Get the actual worker code that will run in production
-const ACTUAL_WORKER_CODE = workerCodeMatch[1];
+const ACTUAL_WORKER_CODE = LIGHTING_WORKER_CODE + workerCodeMatch[1];
 
 // Wrap for Node.js worker_threads (production uses browser Web Workers)
 const NODE_WORKER_CODE = `

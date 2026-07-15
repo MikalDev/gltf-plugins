@@ -520,6 +520,9 @@ export class GltfMesh {
 			? new Uint16Array(this._skinningData.joints)
 			: new Uint8Array(this._skinningData.joints);
 		const weightsCopy = new Float32Array(this._skinningData.weights);
+		// Vertex colors / material baseColorFactor, so the worker can blend them into
+		// the lighting result exactly as the main-thread path does.
+		const sourceColorsCopy = this._sourceColors ? new Float32Array(this._sourceColors) : null;
 
 		pool.registerSkinnedMesh(this._id, positionsCopy, normalsCopy, jointsCopy, weightsCopy, (skinnedPositions, skinnedNormals, skinnedColors, anchor) => {
 			// The instance may have moved after this request was queued (event-sheet
@@ -539,7 +542,7 @@ export class GltfMesh {
 				this._applyColors(skinnedColors);
 			}
 			if (target) this.retransformSkinned(target);
-		});
+		}, sourceColorsCopy);
 
 		this._isRegisteredSkinnedWithPool = true;
 	}
@@ -564,7 +567,10 @@ export class GltfMesh {
 		// Positions are needed for spotlight calculations
 		const positionsCopy = this._originalPositions ? new Float32Array(this._originalPositions) : null;
 		const normalsCopy = new Float32Array(this._originalNormals);
-		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy);
+		// Vertex colors / material baseColorFactor, so the worker can blend them into
+		// the lighting result exactly as the main-thread path does.
+		const sourceColorsCopy = this._sourceColors ? new Float32Array(this._sourceColors) : null;
+		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy, sourceColorsCopy);
 
 		this._isRegisteredStaticLightingWithPool = true;
 	}

@@ -4,6 +4,7 @@
   "description": "glTF Static - Construct 3 plugin for loading static glTF 3D models",
   "main": "c3runtime/main.js",
   "scripts": {
+    "test": "node tests/test-transforms.js && node tests/test-node-transform.js && node tests/test-worker-pool-race.js && node tests/test-lighting-equivalence.js",
     "build": "node build.js && tsc",
     "build:bundle": "node build.js",
     "build:ts": "tsc",

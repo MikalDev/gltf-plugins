@@ -631,7 +631,7 @@ export class GltfModel {
 		let staticCount = 0;
 		let registeredCount = 0;
 		for (const mesh of this._meshes) {
-			if (!mesh.isSkinned && mesh.hasNormals) {
+			if (!mesh.isSkinned && mesh.hasNormals && !mesh.parentNode?.hasAnimatedAncestor()) {
 				staticCount++;
 				mesh.registerStaticLightingWithPool(this._workerPool);
 				if (mesh.isRegisteredStaticLightingWithPool) {
@@ -1909,11 +1909,14 @@ export class GltfModel {
 	 */
 	updateStaticMeshTransforms(instanceMatrix?: Float32Array, cameraPosition?: Float32Array | null): void {
 		for (const mesh of this._meshes) {
-			if (!mesh.isSkinned && mesh.parentNode) {
-				const hasAnimAncestor = mesh.parentNode.hasAnimatedAncestor();
-				mesh.updateNodeTransform(hasAnimAncestor ? instanceMatrix : undefined);
-				if (hasAnimAncestor) mesh.applyLighting(null, false, cameraPosition);
-			}
+			if (mesh.isSkinned || !mesh.parentNode) continue;
+			// Baked static meshes already include their node world matrix in
+			// _originalPositions and are handled by the worker static path; re-applying
+			// node world here double-transforms them. Only local-kept meshes (animated
+			// ancestor) are node-transformed per frame.
+			if (!mesh.parentNode.hasAnimatedAncestor()) continue;
+			mesh.updateNodeTransform(instanceMatrix);
+			mesh.applyLighting(null, false, cameraPosition);
 		}
 	}
 

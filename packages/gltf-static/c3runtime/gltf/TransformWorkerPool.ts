@@ -1,4 +1,5 @@
-import type { LightType } from "./Lighting.js";
+import type { LightingConfig } from "./LightingCore.js";
+import { LIGHTING_WORKER_CODE } from "./generated/lightingWorkerCode.js";
 
 /**
  * Manages a pool of transform workers for parallel vertex processing.
@@ -16,8 +17,12 @@ function debugLog(...args: unknown[]): void {
 }
 
 // Inline worker code as string for blob URL creation (avoids separate file bundling)
-const WORKER_CODE = `
-const LIGHT_TYPE_POINT = "point";
+// The worker source = the build-generated LightingCore IIFE (which defines the
+// shared lighting equation, the LIGHT_TYPE_* constants and exposes them on a
+// `LightingCore` global) followed by the worker-only body below. The lighting math
+// is NOT written out here — it is compiled from LightingCore.ts by build.js so the
+// worker and main thread cannot drift apart.
+const WORKER_CODE = LIGHTING_WORKER_CODE + `
 
 const meshCache = new Map();
 const skinnedMeshCache = new Map();
@@ -40,266 +45,6 @@ function transformVerticesInto(original, output, offset, matrix, vertexCount) {
 		output[dstIdx] = m0 * x + m4 * y + m8 * z + m12;
 		output[dstIdx + 1] = m1 * x + m5 * y + m9 * z + m13;
 		output[dstIdx + 2] = m2 * x + m6 * y + m10 * z + m14;
-	}
-}
-
-// Calculate vertex lighting from positions, normals and light configuration
-// positions: vertex positions in model space (3 floats per vertex) - needed for spotlights
-// normals: skinned normals in model space (3 floats per vertex)
-// outColors: output RGBA colors (4 floats per vertex)
-// posOffset: offset in positions buffer (in floats, i.e., vertex * 3)
-// normalOffset: offset in normals buffer (in floats, i.e., vertex * 3)
-// colorOffset: offset in colors buffer (in floats, i.e., vertex * 4)
-// modelMatrix: optional 4x4 matrix to transform positions/normals to world space
-// lightConfig: { ambient, lights, spotLights }
-function calculateLighting(positions, normals, outColors, posOffset, normalOffset, colorOffset, vertexCount, modelMatrix, lightConfig) {
-	const ambient = lightConfig.ambient;
-	const lights = lightConfig.lights;
-	const spotLights = lightConfig.spotLights || [];
-	const specular = lightConfig.specular;
-	const cameraPosition = lightConfig.cameraPosition;
-
-	// Extract matrix components if provided (4x4 column-major)
-	const hasMatrix = modelMatrix && modelMatrix.length >= 16;
-
-	// Rotation/scale part (upper-left 3x3)
-	let m00 = 1, m01 = 0, m02 = 0;
-	let m10 = 0, m11 = 1, m12 = 0;
-	let m20 = 0, m21 = 0, m22 = 1;
-	// Translation part
-	let tx = 0, ty = 0, tz = 0;
-
-	if (hasMatrix) {
-		m00 = modelMatrix[0]; m01 = modelMatrix[4]; m02 = modelMatrix[8];
-		m10 = modelMatrix[1]; m11 = modelMatrix[5]; m12 = modelMatrix[9];
-		m20 = modelMatrix[2]; m21 = modelMatrix[6]; m22 = modelMatrix[10];
-		tx = modelMatrix[12]; ty = modelMatrix[13]; tz = modelMatrix[14];
-	}
-
-	const hasSpotLights = spotLights.length > 0 && positions !== null;
-	const canDoSpecular = cameraPosition && cameraPosition.length >= 3 && positions !== null && specular && specular.intensity > 0;
-
-	for (let i = 0; i < vertexCount; i++) {
-		const pOff3 = posOffset + i * 3;
-		const nOff3 = normalOffset + i * 3;
-		const off4 = colorOffset + i * 4;
-
-		// Start with ambient
-		let r = ambient[0];
-		let g = ambient[1];
-		let b = ambient[2];
-
-		// Normal components (model space)
-		let nx = normals[nOff3];
-		let ny = normals[nOff3 + 1];
-		let nz = normals[nOff3 + 2];
-
-		// Transform normal to world space if matrix provided
-		if (hasMatrix) {
-			const wnx = m00 * nx + m01 * ny + m02 * nz;
-			const wny = m10 * nx + m11 * ny + m12 * nz;
-			const wnz = m20 * nx + m21 * ny + m22 * nz;
-			const len = Math.sqrt(wnx * wnx + wny * wny + wnz * wnz);
-			if (len > 0.0001) {
-				nx = wnx / len;
-				ny = wny / len;
-				nz = wnz / len;
-			}
-		}
-
-		// Hemisphere light contribution (blend sky/ground based on normal.z for Z-up)
-		if (lightConfig.hemisphere && lightConfig.hemisphere.enabled) {
-			const hemi = lightConfig.hemisphere;
-			const blend = (nz + 1) * 0.5;
-			const invBlend = 1 - blend;
-			const hemiIntensity = hemi.intensity;
-			r += (hemi.groundColor[0] * invBlend + hemi.skyColor[0] * blend) * hemiIntensity;
-			g += (hemi.groundColor[1] * invBlend + hemi.skyColor[1] * blend) * hemiIntensity;
-			b += (hemi.groundColor[2] * invBlend + hemi.skyColor[2] * blend) * hemiIntensity;
-		}
-
-		// Get vertex world position (needed for spotlights and specular)
-		let px = 0, py = 0, pz = 0;
-		let viewX = 0, viewY = 0, viewZ = 0;
-		const needsWorldPos = hasSpotLights || canDoSpecular;
-
-		if (needsWorldPos && positions) {
-			px = positions[pOff3];
-			py = positions[pOff3 + 1];
-			pz = positions[pOff3 + 2];
-
-			// Transform position to world space if matrix provided
-			if (hasMatrix) {
-				const wpx = m00 * px + m01 * py + m02 * pz + tx;
-				const wpy = m10 * px + m11 * py + m12 * pz + ty;
-				const wpz = m20 * px + m21 * py + m22 * pz + tz;
-				px = wpx;
-				py = wpy;
-				pz = wpz;
-			}
-
-			// Calculate view direction for specular (vertex to camera)
-			if (canDoSpecular) {
-				const vx = cameraPosition[0] - px;
-				const vy = cameraPosition[1] - py;
-				const vz = cameraPosition[2] - pz;
-				const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
-				if (vLen > 0.0001) {
-					viewX = vx / vLen;
-					viewY = vy / vLen;
-					viewZ = vz / vLen;
-				}
-			}
-		}
-
-		// Accumulate contribution from all enabled directional lights
-		for (let j = 0; j < lights.length; j++) {
-			const light = lights[j];
-			if (!light.enabled) continue;
-
-			// Light direction (TO light, already normalized)
-			const lightDirX = light.direction[0];
-			const lightDirY = light.direction[1];
-			const lightDirZ = light.direction[2];
-
-			const NdotL = nx * lightDirX + ny * lightDirY + nz * lightDirZ;
-
-			if (NdotL > 0) {
-				// Diffuse contribution
-				const contrib = NdotL * light.intensity;
-				r += light.color[0] * contrib;
-				g += light.color[1] * contrib;
-				b += light.color[2] * contrib;
-
-				// Specular contribution (Blinn-Phong)
-				if (canDoSpecular && light.specularEnabled) {
-					// Half vector: normalize(lightDir + viewDir)
-					const hx = lightDirX + viewX;
-					const hy = lightDirY + viewY;
-					const hz = lightDirZ + viewZ;
-					const hLen = Math.sqrt(hx * hx + hy * hy + hz * hz);
-					if (hLen > 0.0001) {
-						const halfX = hx / hLen;
-						const halfY = hy / hLen;
-						const halfZ = hz / hLen;
-
-						const NdotH = nx * halfX + ny * halfY + nz * halfZ;
-
-						// Debug mode: show color regardless of NdotH sign (helps diagnose inversions)
-						if (specular.debugBlue) {
-							if (Math.abs(NdotH) > 0.01) {
-								b += 1.0;
-							}
-						} else {
-							// Clamp to avoid NaN from negative values with fractional exponents
-							const spec = Math.pow(Math.max(0, NdotH), specular.shininess) * specular.intensity * light.intensity;
-							r += light.color[0] * spec;
-							g += light.color[1] * spec;
-							b += light.color[2] * spec;
-						}
-					}
-				}
-			}
-		}
-
-		// Accumulate contribution from all enabled spotlights
-		if (hasSpotLights) {
-			for (let j = 0; j < spotLights.length; j++) {
-				const spot = spotLights[j];
-				if (!spot.enabled) continue;
-
-				// Vector from light to vertex
-				const dx = px - spot.position[0];
-				const dy = py - spot.position[1];
-				const dz = pz - spot.position[2];
-				const distSq = dx * dx + dy * dy + dz * dz;
-				const dist = Math.sqrt(distSq);
-
-				if (dist < 0.0001) continue;
-
-				const invDist = 1 / dist;
-				const toVertX = dx * invDist;
-				const toVertY = dy * invDist;
-				const toVertZ = dz * invDist;
-
-				// Angular falloff (skipped for point lights)
-				let angularAtten = 1;
-				if (spot.type !== LIGHT_TYPE_POINT) {
-					const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
-					const innerCos = Math.cos(spot.innerConeAngle);
-					const outerCos = Math.cos(spot.outerConeAngle);
-
-					if (cosAngle <= outerCos) continue;
-
-					if (cosAngle >= innerCos) {
-						angularAtten = 1;
-					} else {
-						const t = (cosAngle - outerCos) / (innerCos - outerCos);
-						angularAtten = Math.pow(t, spot.falloffExponent);
-					}
-				}
-
-				// Distance attenuation
-				let distAtten = 1;
-				if (spot.range > 0) {
-					if (dist >= spot.range) continue;
-					const normalizedDist = dist / spot.range;
-					const rangeAtten = 1 - normalizedDist * normalizedDist;
-					distAtten = rangeAtten * rangeAtten;
-				} else {
-					distAtten = 1 / (1 + distSq);
-				}
-
-				// N dot L
-				const lightDirX = -toVertX;
-				const lightDirY = -toVertY;
-				const lightDirZ = -toVertZ;
-				const NdotL = nx * lightDirX + ny * lightDirY + nz * lightDirZ;
-
-				if (NdotL > 0) {
-					// Diffuse contribution
-					const contrib = NdotL * spot.intensity * angularAtten * distAtten;
-					r += spot.color[0] * contrib;
-					g += spot.color[1] * contrib;
-					b += spot.color[2] * contrib;
-
-					// Specular contribution (Blinn-Phong)
-					if (canDoSpecular && spot.specularEnabled) {
-						// Half vector: normalize(lightDir + viewDir)
-						const hx = lightDirX + viewX;
-						const hy = lightDirY + viewY;
-						const hz = lightDirZ + viewZ;
-						const hLen = Math.sqrt(hx * hx + hy * hy + hz * hz);
-						if (hLen > 0.0001) {
-							const halfX = hx / hLen;
-							const halfY = hy / hLen;
-							const halfZ = hz / hLen;
-
-							const NdotH = nx * halfX + ny * halfY + nz * halfZ;
-
-							// Debug mode: show color regardless of NdotH sign
-							if (specular.debugBlue) {
-								if (Math.abs(NdotH) > 0.01) {
-									b += 1.0;
-								}
-							} else {
-								// Clamp to avoid NaN from negative values with fractional exponents
-								const spec = Math.pow(Math.max(0, NdotH), specular.shininess) * specular.intensity * spot.intensity * angularAtten * distAtten;
-								r += spot.color[0] * spec;
-								g += spot.color[1] * spec;
-								b += spot.color[2] * spec;
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Write output (clamped, alpha = 1)
-		outColors[off4] = r > 2 ? 2 : r;
-		outColors[off4 + 1] = g > 2 ? 2 : g;
-		outColors[off4 + 2] = b > 2 ? 2 : b;
-		outColors[off4 + 3] = 1;
 	}
 }
 
@@ -404,6 +149,9 @@ self.onmessage = (e) => {
 				normals: msg.normals || null,  // transferred (optional)
 				joints: msg.joints,        // transferred
 				weights: msg.weights,      // transferred
+				// Vertex colors / material baseColorFactor. Static per mesh, so it is
+				// uploaded once here rather than re-sent each frame.
+				sourceColors: msg.sourceColors || null,  // transferred (optional)
 				vertexCount,
 				floatCount: msg.positions.length
 			});
@@ -498,10 +246,10 @@ self.onmessage = (e) => {
 
 				// Calculate lighting if config provided and mesh has normals
 				if (packedColors && packedNormals && entry.normals) {
-					calculateLighting(
+					LightingCore.calculateLightingInto(
 						packedPositions, packedNormals, packedColors,
 						offset, offset, colorOffset, entry.vertexCount,
-						lightConfig.modelMatrix, lightConfig
+						lightConfig.modelMatrix, entry.sourceColors, lightConfig
 					);
 				}
 
@@ -529,6 +277,9 @@ self.onmessage = (e) => {
 			staticLightingCache.set(msg.meshId, {
 				positions: msg.positions || null,  // transferred (needed for spotlights)
 				normals: msg.normals,  // transferred
+				// Vertex colors / material baseColorFactor. Static per mesh, so it is
+				// uploaded once here rather than re-sent each frame.
+				sourceColors: msg.sourceColors || null,  // transferred (optional)
 				vertexCount
 			});
 			break;
@@ -582,10 +333,10 @@ self.onmessage = (e) => {
 				// NOT packedPositions (already world-space) — that would double-transform positions,
 				// causing spotlight distance calculations to land in a completely wrong space.
 				if (packedColors && entry.normals && req.lightConfig) {
-					calculateLighting(
+					LightingCore.calculateLightingInto(
 						entry.positions, entry.normals, packedColors,
 						0, 0, colorOffset, entry.vertexCount,
-						req.instanceMatrix, req.lightConfig
+						req.instanceMatrix, entry.sourceColors, req.lightConfig
 					);
 				}
 
@@ -627,44 +378,21 @@ type TransformCallback = (positions: Float32Array) => void;
 type SkinningCallback = (positions: Float32Array, normals: Float32Array | null, colors: Float32Array | null, anchorMatrix: Float32Array | null) => void;
 type StaticTransformCallback = (positions: Float32Array, colors: Float32Array | null) => void;
 
-/** Light configuration for worker-based lighting calculation */
-export interface WorkerLightConfig {
-	ambient: Float32Array | number[];
-	lights: Array<{
-		enabled: boolean;
-		color: Float32Array | number[];
-		intensity: number;
-		direction: Float32Array | number[];
-		specularEnabled: boolean;
-	}>;
-	spotLights?: Array<{
-		enabled: boolean;
-		color: Float32Array | number[];
-		intensity: number;
-		position: Float32Array | number[];
-		direction: Float32Array | number[];
-		innerConeAngle: number;
-		outerConeAngle: number;
-		falloffExponent: number;
-		range: number;
-		specularEnabled: boolean;
-		type?: LightType;
-	}>;
-	/** Hemisphere light (blends sky/ground colors based on normal.y) */
-	hemisphere?: {
-		enabled: boolean;
-		skyColor: Float32Array | number[];
-		groundColor: Float32Array | number[];
-		intensity: number;
-	};
-	/** Specular configuration */
-	specular?: {
-		shininess: number;
-		intensity: number;
-		debugBlue?: boolean;
-	};
-	/** Camera world position for specular calculations */
-	cameraPosition?: Float32Array | number[];
+/**
+ * Light configuration posted to the worker.
+ *
+ * This is the same shape the main thread feeds LightingCore (see
+ * Lighting.getGlobalLightingConfig), so both threads run the identical equation.
+ * It used to be a hand-written duplicate of that shape, which is how the worker
+ * ended up silently missing vertex-color support.
+ */
+export interface WorkerLightConfig extends LightingConfig {
+	/**
+	 * Optional model matrix. Left undefined for skinned meshes, whose bone
+	 * matrices already carry the instance transform, making their skinned
+	 * positions world-space before lighting runs.
+	 */
+	modelMatrix?: Float32Array | null;
 }
 
 interface MeshRegistration {
@@ -812,7 +540,8 @@ export class TransformWorkerPool {
 		normals: Float32Array | null,
 		joints: Uint8Array | Uint16Array,
 		weights: Float32Array,
-		callback: SkinningCallback
+		callback: SkinningCallback,
+		sourceColors: Float32Array | null = null
 	): void {
 		if (this._disposed) return;
 
@@ -833,9 +562,12 @@ export class TransformWorkerPool {
 		if (weights.buffer.byteLength > 0 && !transferList.includes(weights.buffer)) {
 			transferList.push(weights.buffer);
 		}
+		// sourceColors is deliberately NOT transferred — the main thread keeps using
+		// its copy for bakeLighting/refreshLightingAndBake. It is small and sent once,
+		// so structured-clone cost is irrelevant; detaching it would not be.
 
 		this._workers[workerIndex].postMessage(
-			{ type: "REGISTER_SKIN", meshId, positions, normals, joints, weights },
+			{ type: "REGISTER_SKIN", meshId, positions, normals, joints, weights, sourceColors },
 			transferList
 		);
 	}
@@ -850,7 +582,8 @@ export class TransformWorkerPool {
 	registerStaticMeshForLighting(
 		meshId: number,
 		positions: Float32Array | null,
-		normals: Float32Array
+		normals: Float32Array,
+		sourceColors: Float32Array | null = null
 	): void {
 		if (this._disposed) return;
 
@@ -865,9 +598,12 @@ export class TransformWorkerPool {
 		if (positions && positions.buffer.byteLength > 0 && !transferList.includes(positions.buffer)) {
 			transferList.push(positions.buffer);
 		}
+		// sourceColors is deliberately NOT transferred — the main thread keeps using
+		// its copy for bakeLighting/refreshLightingAndBake. It is small and sent once,
+		// so structured-clone cost is irrelevant; detaching it would not be.
 
 		this._workers[workerIndex].postMessage(
-			{ type: "REGISTER_STATIC_LIGHTING", meshId, positions, normals },
+			{ type: "REGISTER_STATIC_LIGHTING", meshId, positions, normals, sourceColors },
 			transferList
 		);
 	}
@@ -1014,8 +750,13 @@ export class TransformWorkerPool {
 		// Nothing to flush
 		if (workersWithWork === 0) return;
 
-		// Wait for all workers to respond
-		this._pendingResponses = workersWithWork;
+		// Accumulate, don't overwrite: flush() is fire-and-forget on the tick path
+		// (flushIfPending() discards the promise), so frame N+1 can flush while
+		// frame N's replies are still in flight. Overwriting made the counter hit
+		// zero early — firing callbacks on a partial result set, clearing
+		// _pendingResults, and stranding the in-flight results to be delivered
+		// stale on a later frame.
+		this._pendingResponses += workersWithWork;
 		return new Promise((resolve) => {
 			this._flushResolvers.push(resolve);
 		});
