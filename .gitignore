@@ -9,8 +9,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Claude Code
-.claude/
+# Claude Code (ignore local state, but track shared agent definitions)
+.claude/*
+!.claude/agents/
 
 # Logs
 *.log
