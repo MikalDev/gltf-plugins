@@ -795,7 +795,7 @@ export class AnimationController {
 	private _cacheActiveChannels(anim: CachedAnimationData): void {
 		this._activeChannels = [];
 		this._morphWeightStates = [];
-		const _droppedChanDiag: string[] = []; // TEMP DIAG
+		let droppedTransformChannels = 0;
 
 		for (const channel of anim.channels) {
 			const sampler = anim.samplers[channel.samplerIndex];
@@ -818,15 +818,17 @@ export class AnimationController {
 
 			// Skip non-joint channels for transform paths
 			if (channel.targetJointIndex < 0 || channel.targetJointIndex >= this._skinData.joints.length) {
-				// TEMP DIAG: record dropped non-joint transform channels (rigid node animation).
-				_droppedChanDiag.push(`${(channel.targetNode as unknown as { getName?: () => string } | null)?.getName?.() ?? "?"}:${channel.targetPath}`);
+				droppedTransformChannels++;
 				continue;
 			}
 			this._activeChannels.push({ channel, sampler });
 		}
-		// TEMP DIAG
-		console.log(`[GLTF-DIAG-CHAN] kept ${this._activeChannels.length} channels, ${this._morphWeightStates.length} morph; DROPPED ${_droppedChanDiag.length} non-joint transform channels${_droppedChanDiag.length ? ": " + _droppedChanDiag.join(", ") : ""}`);
 		debugLog(`Cached ${this._activeChannels.length} active channels (${this._morphWeightStates.length} morph weight channels)`);
+		if (droppedTransformChannels > 0) {
+			// Rigid node animation (TRS channels targeting a non-joint node) is not
+			// supported — the channel is evaluated nowhere, so the node never moves.
+			debugLog(`Dropped ${droppedTransformChannels} non-joint transform channel(s): rigid node animation is unsupported`);
+		}
 	}
 
 	/**

@@ -1,13 +1,16 @@
 // tests/test-node-transform.js
-// Regression test for double-transform of baked static meshes in mixed
-// skinned/non-skinned glTF models.
+// Covers GltfNode's world-matrix hierarchy and the worker-pool static-mesh
+// registration rule now that rigid meshes under animated joints are
+// converted to 1-bone skinned meshes at load time (so _originalPositions is
+// always model-space / node-world-baked for every non-skinned mesh).
 //
 // Part 1: sanity-checks GltfNode's parent/child world-matrix hierarchy
 //         (compiled from the actual GltfNode.ts source via esbuild).
-// Part 2: extracts the ACTUAL updateStaticMeshTransforms() method body from
-//         GltfModel.ts and runs it against lightweight stub meshes, asserting
-//         that baked meshes (no animated ancestor) are skipped while
-//         local-kept meshes (animated ancestor) are node-transformed.
+// Part 2: extracts the ACTUAL _registerStaticMeshesForLightingWithPool()
+//         method body from GltfModel.ts and verifies the selection rule is
+//         simply `!isSkinned && hasNormals` — animated-ancestor status no
+//         longer matters, since such meshes are now skinned and excluded by
+//         the isSkinned check.
 //
 // Run: node tests/test-node-transform.js
 
@@ -142,8 +145,12 @@ test('GltfNode: hasAnimatedAncestor() walks up the chain', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Part 2: Extract the ACTUAL updateStaticMeshTransforms() method body from
-// GltfModel.ts and exercise the baked-vs-local-kept mesh selection logic.
+// Part 2: Extract the ACTUAL _registerStaticMeshesForLightingWithPool() method
+// body from GltfModel.ts and verify the current selection rule: a mesh
+// registers with the worker static-lighting pool iff `!isSkinned &&
+// hasNormals`. Animated-ancestor status is irrelevant now — rigid meshes
+// under animated joints are converted to 1-bone skinned meshes at load time
+// and are therefore excluded by the isSkinned check already.
 // ---------------------------------------------------------------------------
 
 const modelSourcePath = path.join(__dirname, '../c3runtime/gltf/GltfModel.ts');
@@ -170,95 +177,6 @@ function extractMethodBody(source, signatureRegex) {
   return source.slice(openBraceIndex + 1, i);
 }
 
-const methodBody = extractMethodBody(
-  modelSource,
-  /updateStaticMeshTransforms\(instanceMatrix\?: Float32Array, cameraPosition\?: Float32Array \| null\): void \{/
-);
-
-// Wrap the extracted body into a callable function. The body references
-// `this._meshes`, so it must be invoked with .call(ctx, ...).
-const updateStaticMeshTransforms = new Function('instanceMatrix', 'cameraPosition', methodBody);
-
-function makeStubMesh({ isSkinned, hasAnimatedAncestor, hasParent = true }) {
-  const calls = { updateNodeTransform: [], applyLighting: [] };
-  return {
-    isSkinned,
-    parentNode: hasParent ? { hasAnimatedAncestor: () => hasAnimatedAncestor } : null,
-    updateNodeTransform(instanceMatrix) { calls.updateNodeTransform.push(instanceMatrix); },
-    applyLighting(a, b, cameraPosition) { calls.applyLighting.push(cameraPosition); },
-    _calls: calls
-  };
-}
-
-test('updateStaticMeshTransforms: baked mesh (no animated ancestor) is skipped', () => {
-  const bakedMesh = makeStubMesh({ isSkinned: false, hasAnimatedAncestor: false });
-  const ctx = { _meshes: [bakedMesh] };
-  const instanceMatrix = new Float32Array(16);
-  const cameraPosition = new Float32Array(3);
-
-  updateStaticMeshTransforms.call(ctx, instanceMatrix, cameraPosition);
-
-  assert(bakedMesh._calls.updateNodeTransform.length === 0, 'Baked mesh must NOT be node-transformed (already includes node world matrix in _originalPositions)');
-  assert(bakedMesh._calls.applyLighting.length === 0, 'Baked mesh must NOT get main-thread lighting applied here');
-});
-
-test('updateStaticMeshTransforms: local-kept mesh (animated ancestor) is node-transformed with instance matrix', () => {
-  const localKeptMesh = makeStubMesh({ isSkinned: false, hasAnimatedAncestor: true });
-  const ctx = { _meshes: [localKeptMesh] };
-  const instanceMatrix = new Float32Array(16);
-  instanceMatrix[0] = 42; // sentinel to verify identity is passed through
-  const cameraPosition = new Float32Array(3);
-
-  updateStaticMeshTransforms.call(ctx, instanceMatrix, cameraPosition);
-
-  assert(localKeptMesh._calls.updateNodeTransform.length === 1, 'Local-kept mesh must be node-transformed exactly once');
-  assert(localKeptMesh._calls.updateNodeTransform[0] === instanceMatrix, 'Local-kept mesh must receive the instance matrix (not undefined)');
-  assert(localKeptMesh._calls.applyLighting.length === 1, 'Local-kept mesh must get main-thread lighting applied');
-  assert(localKeptMesh._calls.applyLighting[0] === cameraPosition, 'Lighting call should receive the camera position');
-});
-
-test('updateStaticMeshTransforms: skinned meshes are always skipped', () => {
-  const skinnedBaked = makeStubMesh({ isSkinned: true, hasAnimatedAncestor: false });
-  const skinnedLocal = makeStubMesh({ isSkinned: true, hasAnimatedAncestor: true });
-  const ctx = { _meshes: [skinnedBaked, skinnedLocal] };
-
-  updateStaticMeshTransforms.call(ctx, new Float32Array(16), null);
-
-  assert(skinnedBaked._calls.updateNodeTransform.length === 0, 'Skinned mesh (baked) must never be node-transformed here');
-  assert(skinnedLocal._calls.updateNodeTransform.length === 0, 'Skinned mesh (local-kept) must never be node-transformed here');
-});
-
-test('updateStaticMeshTransforms: meshes without a parent node are skipped', () => {
-  const orphanMesh = makeStubMesh({ isSkinned: false, hasAnimatedAncestor: true, hasParent: false });
-  const ctx = { _meshes: [orphanMesh] };
-
-  updateStaticMeshTransforms.call(ctx, new Float32Array(16), null);
-
-  assert(orphanMesh._calls.updateNodeTransform.length === 0, 'Mesh with no parentNode must be skipped');
-});
-
-test('updateStaticMeshTransforms: mixed model only transforms local-kept mesh, leaves baked mesh alone', () => {
-  const bakedMesh = makeStubMesh({ isSkinned: false, hasAnimatedAncestor: false });
-  const localKeptMesh = makeStubMesh({ isSkinned: false, hasAnimatedAncestor: true });
-  const skinnedMesh = makeStubMesh({ isSkinned: true, hasAnimatedAncestor: false });
-  const ctx = { _meshes: [bakedMesh, localKeptMesh, skinnedMesh] };
-  const instanceMatrix = new Float32Array(16);
-
-  updateStaticMeshTransforms.call(ctx, instanceMatrix, new Float32Array(3));
-
-  assert(bakedMesh._calls.updateNodeTransform.length === 0, 'Baked mesh skipped in mixed model');
-  assert(localKeptMesh._calls.updateNodeTransform.length === 1, 'Local-kept mesh transformed in mixed model');
-  assert(skinnedMesh._calls.updateNodeTransform.length === 0, 'Skinned mesh skipped in mixed model');
-});
-
-// ---------------------------------------------------------------------------
-// Part 3: Extract the ACTUAL _registerStaticMeshesForLightingWithPool() method
-// body from GltfModel.ts and verify that LOCAL-KEPT meshes (non-skinned with
-// an animated ancestor) are excluded from worker static registration, since
-// they are transformed+lit entirely on the main thread by
-// updateStaticMeshTransforms().
-// ---------------------------------------------------------------------------
-
 // debugLog is a free variable (module-level function in GltfModel.ts) referenced
 // unqualified inside the extracted method body; provide it as a global stub so
 // the body can resolve it when invoked outside the module.
@@ -271,7 +189,7 @@ const registerMethodBody = extractMethodBody(
 
 const registerStaticMeshesForLightingWithPool = new Function(registerMethodBody);
 
-function makeRegistrationStubMesh({ isSkinned, hasNormals, parentNode }) {
+function makeRegistrationStubMesh({ isSkinned, hasNormals, parentNode = null }) {
   let registered = false;
   return {
     isSkinned,
@@ -282,38 +200,34 @@ function makeRegistrationStubMesh({ isSkinned, hasNormals, parentNode }) {
   };
 }
 
-test('_registerStaticMeshesForLightingWithPool: baked mesh (no animated ancestor) IS registered', () => {
-  const bakedMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
-  const ctx = { _workerPool: {}, _meshes: [bakedMesh] };
+test('_registerStaticMeshesForLightingWithPool: non-skinned mesh with normals IS registered', () => {
+  const mesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: true });
+  const ctx = { _workerPool: {}, _meshes: [mesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
 
-  assert(bakedMesh.isRegisteredStaticLightingWithPool === true, 'Baked mesh must be registered with the worker static pool');
+  assert(mesh.isRegisteredStaticLightingWithPool === true, 'Non-skinned mesh with normals must be registered with the worker static pool');
 });
 
-test('_registerStaticMeshesForLightingWithPool: LOCAL-KEPT mesh (animated ancestor) is NOT registered', () => {
-  const localKeptMesh = makeRegistrationStubMesh({
+test('_registerStaticMeshesForLightingWithPool: registers regardless of animated ancestor (converted meshes are already skinned)', () => {
+  // A mesh with an animated-ancestor parentNode but isSkinned:false represents
+  // a case that should no longer occur post-load-time-conversion, but the
+  // registration rule itself must not special-case it -- selection is purely
+  // !isSkinned && hasNormals.
+  const mesh = makeRegistrationStubMesh({
     isSkinned: false,
     hasNormals: true,
     parentNode: { hasAnimatedAncestor: () => true }
   });
-  const ctx = { _workerPool: {}, _meshes: [localKeptMesh] };
+  const ctx = { _workerPool: {}, _meshes: [mesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
 
-  assert(localKeptMesh.isRegisteredStaticLightingWithPool === false, 'LOCAL-KEPT mesh must NOT be registered with the worker static pool (handled main-thread)');
+  assert(mesh.isRegisteredStaticLightingWithPool === true, 'Registration must not depend on hasAnimatedAncestor() anymore');
 });
 
 test('_registerStaticMeshesForLightingWithPool: skinned mesh is NOT registered', () => {
-  const skinnedMesh = makeRegistrationStubMesh({
-    isSkinned: true,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
+  const skinnedMesh = makeRegistrationStubMesh({ isSkinned: true, hasNormals: true });
   const ctx = { _workerPool: {}, _meshes: [skinnedMesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
@@ -322,11 +236,7 @@ test('_registerStaticMeshesForLightingWithPool: skinned mesh is NOT registered',
 });
 
 test('_registerStaticMeshesForLightingWithPool: mesh with no normals is NOT registered', () => {
-  const noNormalsMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: false,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
+  const noNormalsMesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: false });
   const ctx = { _workerPool: {}, _meshes: [noNormalsMesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
@@ -334,55 +244,35 @@ test('_registerStaticMeshesForLightingWithPool: mesh with no normals is NOT regi
   assert(noNormalsMesh.isRegisteredStaticLightingWithPool === false, 'Mesh without normals must NOT be registered with the worker static pool');
 });
 
-test('_registerStaticMeshesForLightingWithPool: mesh with no parentNode IS registered (optional chaining)', () => {
-  const orphanMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: true,
-    parentNode: null
-  });
+test('_registerStaticMeshesForLightingWithPool: mesh with no parentNode IS registered', () => {
+  const orphanMesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: true, parentNode: null });
   const ctx = { _workerPool: {}, _meshes: [orphanMesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
 
-  assert(orphanMesh.isRegisteredStaticLightingWithPool === true, 'Mesh without a parentNode must still be registered (baked, no ancestor to check)');
+  assert(orphanMesh.isRegisteredStaticLightingWithPool === true, 'Mesh without a parentNode must still be registered');
 });
 
-test('_registerStaticMeshesForLightingWithPool: mixed model registers only the baked mesh', () => {
-  const bakedMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
-  const localKeptMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => true }
-  });
-  const skinnedMesh = makeRegistrationStubMesh({
-    isSkinned: true,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
-  const ctx = { _workerPool: {}, _meshes: [bakedMesh, localKeptMesh, skinnedMesh] };
+test('_registerStaticMeshesForLightingWithPool: mixed model registers non-skinned meshes with normals only', () => {
+  const staticMesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: true });
+  const noNormalsMesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: false });
+  const skinnedMesh = makeRegistrationStubMesh({ isSkinned: true, hasNormals: true });
+  const ctx = { _workerPool: {}, _meshes: [staticMesh, noNormalsMesh, skinnedMesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
 
-  assert(bakedMesh.isRegisteredStaticLightingWithPool === true, 'Baked mesh registered in mixed model');
-  assert(localKeptMesh.isRegisteredStaticLightingWithPool === false, 'LOCAL-KEPT mesh not registered in mixed model');
+  assert(staticMesh.isRegisteredStaticLightingWithPool === true, 'Static mesh with normals registered in mixed model');
+  assert(noNormalsMesh.isRegisteredStaticLightingWithPool === false, 'Mesh without normals not registered in mixed model');
   assert(skinnedMesh.isRegisteredStaticLightingWithPool === false, 'Skinned mesh not registered in mixed model');
 });
 
 test('_registerStaticMeshesForLightingWithPool: no-op when there is no worker pool', () => {
-  const bakedMesh = makeRegistrationStubMesh({
-    isSkinned: false,
-    hasNormals: true,
-    parentNode: { hasAnimatedAncestor: () => false }
-  });
-  const ctx = { _workerPool: null, _meshes: [bakedMesh] };
+  const mesh = makeRegistrationStubMesh({ isSkinned: false, hasNormals: true });
+  const ctx = { _workerPool: null, _meshes: [mesh] };
 
   registerStaticMeshesForLightingWithPool.call(ctx);
 
-  assert(bakedMesh.isRegisteredStaticLightingWithPool === false, 'Nothing should register when _workerPool is falsy');
+  assert(mesh.isRegisteredStaticLightingWithPool === false, 'Nothing should register when _workerPool is falsy');
 });
 
 // ---------------------------------------------------------------------------

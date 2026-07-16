@@ -205,6 +205,8 @@ export class GltfModel {
 	// Node hierarchy (preserves parent-child relationships for transform inheritance)
 	private _rootNodes: GltfNode[] = [];
 	private _nodesByName: Map<string, GltfNode> = new Map();
+	// Runtime GltfNode -> source glTF-Transform node, for per-skin joint resolution during load
+	private _nodeDefMap: Map<GltfNode, GltfNodeDef> = new Map();
 
 	get isLoaded(): boolean {
 		return this._isLoaded;
@@ -449,6 +451,7 @@ export class GltfModel {
 			// Clear node hierarchy storage
 			this._rootNodes = [];
 			this._nodesByName.clear();
+			this._nodeDefMap.clear();
 
 			for (const scene of sceneList) {
 				const children = scene.listChildren();
@@ -464,7 +467,8 @@ export class GltfModel {
 						cached.meshSkinningData,
 						meshIndexCounter,
 						nodeIndexCounter,
-						globalNodeToJointIndex
+						globalNodeToJointIndex,
+						cached.skins
 					);
 					this._rootNodes.push(rootNode);
 				}
@@ -631,7 +635,7 @@ export class GltfModel {
 		let staticCount = 0;
 		let registeredCount = 0;
 		for (const mesh of this._meshes) {
-			if (!mesh.isSkinned && mesh.hasNormals && !mesh.parentNode?.hasAnimatedAncestor()) {
+			if (!mesh.isSkinned && mesh.hasNormals) {
 				staticCount++;
 				mesh.registerStaticLightingWithPool(this._workerPool);
 				if (mesh.isRegisteredStaticLightingWithPool) {
@@ -871,6 +875,8 @@ export class GltfModel {
 	 * Process a glTF node recursively, building node tree and adding meshes to flat array.
 	 * @param parentNode Parent GltfNode (null for root nodes)
 	 * @param globalNodeToJointIndex Map from glTF node to joint index (across all skins)
+	 * @param skins All cached skins for this document (used to synthesize 1-bone skinning
+	 *   for rigid meshes that sit under an animated ancestor - see resolution against skins[0])
 	 * @returns The created GltfNode
 	 */
 	private _processNode(
@@ -884,6 +890,7 @@ export class GltfModel {
 		meshIndexCounter: { value: number },
 		nodeIndexCounter: { value: number },
 		globalNodeToJointIndex: Map<GltfNodeDef, number>,
+		skins: CachedSkinData[],
 		depth: number = 0
 	): GltfNode {
 		// Generate node name with fallback for unnamed nodes
@@ -905,6 +912,7 @@ export class GltfModel {
 
 		// Store in lookup map
 		this._nodesByName.set(nodeName, node);
+		this._nodeDefMap.set(node, nodeDef);
 
 		// Check if this node is a joint
 		const jointIndex = globalNodeToJointIndex.get(nodeDef);
@@ -921,6 +929,27 @@ export class GltfModel {
 		const skinIndex = skin ? skinMap.get(skin) : undefined;
 		if (skin && skinIndex !== undefined) {
 			debugLog(`${indent}  Node has skin (index ${skinIndex})`);
+		}
+
+		// For non-skinned nodes sitting under an animated ancestor, resolve the nearest joint
+		// ancestor against skins[0]'s nodeToJointIndex (the AnimationController only ever
+		// evaluates skins[0], so a joint from any other skin cannot be used here). If resolved,
+		// rigid meshes on this node will be converted into 1-bone skinned meshes at load time.
+		let rigidSkinJointIndex: number | undefined;
+		let rigidSkinBakeMatrix: Float32Array | undefined;
+		if (skinIndex === undefined && node.hasAnimatedAncestor() && skins.length > 0) {
+			let ancestor: GltfNode | null = node;
+			while (ancestor) {
+				if (ancestor.jointIndex >= 0) break;
+				ancestor = ancestor.parent;
+			}
+			const ancestorDef = ancestor ? this._nodeDefMap.get(ancestor) : undefined;
+			rigidSkinJointIndex = ancestorDef ? skins[0].nodeToJointIndex.get(ancestorDef) : undefined;
+			if (rigidSkinJointIndex === undefined) {
+				debugWarn(`${indent}  Node "${nodeName}" has animated ancestor but its joint was not found in skins[0]; its mesh(es) will remain static baked meshes`);
+			} else {
+				rigidSkinBakeMatrix = this._computeRigidSkinBakeMatrix(node, ancestor!, rigidSkinJointIndex, skins[0]);
+			}
 		}
 
 		const mesh = nodeDef.getMesh();
@@ -945,7 +974,8 @@ export class GltfModel {
 					textureMap,
 					skinIndex,
 					node,
-					mesh
+					mesh,
+					rigidSkinBakeMatrix
 				);
 
 				if (gltfMesh) {
@@ -961,6 +991,12 @@ export class GltfModel {
 							meshSkinningData.set(currentMeshIndex, skinningData);
 							debugLog(`${indent}    Mesh ${currentMeshIndex}: Skinning data extracted`);
 						}
+					} else if (rigidSkinJointIndex !== undefined) {
+						// Synthesize a 1-bone skin so this rigid mesh rides skins[0]'s animated
+						// joint instead of needing a separate static-with-animated-ancestor path.
+						const synthesized = this._synthesizeRigidSkinningData(gltfMesh.vertexCount, rigidSkinJointIndex, skins[0]);
+						meshSkinningData.set(currentMeshIndex, synthesized);
+						debugLog(`${indent}    Mesh ${currentMeshIndex}: Synthesized 1-bone skinning data (joint ${rigidSkinJointIndex})`);
 					}
 
 					meshIndexCounter.value++;
@@ -977,7 +1013,7 @@ export class GltfModel {
 			this._processNode(
 				renderer, child, textureMap, node, loadedMeshes,
 				skinMap, meshSkinningData, meshIndexCounter, nodeIndexCounter,
-				globalNodeToJointIndex, depth + 1
+				globalNodeToJointIndex, skins, depth + 1
 			);
 		}
 
@@ -991,13 +1027,20 @@ export class GltfModel {
 	 * @param skinIndex If present, this mesh is skinned
 	 * @param parentNode The parent GltfNode for this mesh
 	 */
+	/**
+	 * @param rigidSkinBakeMatrix When this rigid mesh is being converted into a 1-bone skinned
+	 *   mesh, the matrix that bakes it into its joint's BIND space (see
+	 *   _computeRigidSkinBakeMatrix). Used instead of the node's rest-pose world matrix —
+	 *   they differ whenever the glTF's rest pose is not its bind pose.
+	 */
 	private _createMesh(
 		renderer: IRenderer,
 		primitive: Primitive,
 		textureMap: Map<Texture, ITexture>,
 		skinIndex?: number,
 		parentNode?: GltfNode,
-		meshDef?: GltfMeshDef
+		meshDef?: GltfMeshDef,
+		rigidSkinBakeMatrix?: Float32Array
 	): GltfMesh | null {
 		// Extract raw data
 		const posAccessor = primitive.getAttribute("POSITION");
@@ -1099,9 +1142,6 @@ export class GltfModel {
 
 		debugLog(`    Primitive: ${vertexCount} verts, ${triangleCount} tris, UVs: ${texCoords ? "yes" : "no"}, normals: ${normals ? "yes" : "computed"}, skinned: ${skinIndex !== undefined}`);
 
-		// Determine if this mesh needs runtime transforms (has animated ancestor)
-		const hasAnimatedAncestor = parentNode?.hasAnimatedAncestor() ?? false;
-
 		if (skinIndex !== undefined) {
 			// Skinned mesh: keep bind pose positions (skinning applies transforms at runtime)
 			positions = new Float32Array(positions);
@@ -1109,22 +1149,21 @@ export class GltfModel {
 				normals = new Float32Array(normals);
 			}
 			debugLog(`    Skinned mesh: keeping bind pose positions`);
-		} else if (hasAnimatedAncestor) {
-			// Static mesh with animated ancestor: keep local positions (node hierarchy applies at runtime)
-			positions = new Float32Array(positions);
-			if (normals) {
-				normals = new Float32Array(normals);
-			}
-			debugLog(`    Static mesh with animated ancestor: keeping local positions`);
 		} else {
-			// Static mesh without animated ancestor: bake node world transform
-			const worldMatrix = parentNode?.getWorldMatrix();
+			// Non-skinned mesh: bake into model space, unconditionally.
+			//
+			// Plain static mesh      -> bake the node's rest-pose world matrix.
+			// Converted 1-bone mesh  -> bake into its joint's BIND space instead, because
+			//   skinning will apply `jointWorld_runtime x IBM` to these vertices and the
+			//   glTF's rest pose is not necessarily its bind pose. See
+			//   _computeRigidSkinBakeMatrix. When rest == bind the two are identical.
+			const worldMatrix = rigidSkinBakeMatrix ?? parentNode?.getWorldMatrix();
 			if (worldMatrix) {
 				positions = this._transformPositions(new Float32Array(positions), worldMatrix as unknown as mat4);
 				if (normals) {
 					normals = this._transformNormals(new Float32Array(normals), worldMatrix as unknown as mat4);
 				}
-				debugLog(`    Static mesh: baked node world transform`);
+				debugLog(`    ${rigidSkinBakeMatrix ? "Rigid 1-bone mesh: baked into joint bind space" : "Static mesh: baked node world transform"}`);
 			} else {
 				positions = new Float32Array(positions);
 				if (normals) {
@@ -1171,8 +1210,12 @@ export class GltfModel {
 		// Extract morph targets from primitive
 		const gltfTargets = primitive.listTargets();
 		if (gltfTargets.length > 0) {
-			// Get the world matrix for transforming deltas (same as positions were baked with)
-			const worldMatrix = (!skinIndex && !hasAnimatedAncestor) ? parentNode?.getWorldMatrix() : null;
+			// Get the world matrix for transforming deltas — must match exactly what the
+			// positions above were baked with, including the joint-bind-space matrix for
+			// converted 1-bone meshes, or the deltas would land in a different space.
+			const worldMatrix = (skinIndex === undefined)
+				? (rigidSkinBakeMatrix ?? parentNode?.getWorldMatrix())
+				: null;
 
 			const morphTargets: MorphTargetData[] = [];
 			for (const target of gltfTargets) {
@@ -1664,6 +1707,78 @@ export class GltfModel {
 	}
 
 	/**
+	 * Compute the matrix that bakes a rigid mesh's vertices into its joint's BIND space,
+	 * so it can be skinned with weight 1.0 on that joint.
+	 *
+	 * A glTF's node transforms encode the REST pose, while the inverse bind matrices encode
+	 * the BIND pose. These are NOT the same: JointData.localBindTransform is literally
+	 * documented "(rest pose)". In cleric.gltf they differ by ~79 degrees at "Weapon.R".
+	 * Skinning computes `jointWorld_runtime x IBM x v`, which only reproduces the mesh's
+	 * transform if `v` is in bind space — baking the rest-pose world instead leaves the
+	 * mesh off by exactly `jointWorld_rest x IBM`, which is the identity only when the two
+	 * poses coincide.
+	 *
+	 * So: take the mesh's rest-pose world, express it relative to the joint at rest, then
+	 * re-place it relative to the joint at bind (inverse(IBM) IS the joint's bind world):
+	 *
+	 *     bake = inverse(IBM_j) x inverse(jointWorld_rest_j) x nodeWorld_rest
+	 *
+	 * When rest == bind this reduces to nodeWorld_rest, i.e. the plain static bake.
+	 */
+	private _computeRigidSkinBakeMatrix(
+		node: GltfNode,
+		jointNode: GltfNode,
+		jointIndex: number,
+		skin: CachedSkinData
+	): Float32Array {
+		const ibm = skin.inverseBindMatrices.subarray(jointIndex * 16, jointIndex * 16 + 16);
+
+		// inverse(IBM) is the joint's world transform at BIND time.
+		const jointWorldBind = mat4.create();
+		mat4.invert(jointWorldBind, ibm as unknown as mat4);
+
+		// The joint's world transform at REST (what the node hierarchy encodes).
+		const invJointWorldRest = mat4.create();
+		mat4.invert(invJointWorldRest, jointNode.getWorldMatrix() as unknown as mat4);
+
+		const bake = mat4.create();
+		mat4.multiply(bake, jointWorldBind, invJointWorldRest);
+		mat4.multiply(bake, bake, node.getWorldMatrix() as unknown as mat4);
+
+		return new Float32Array(bake);
+	}
+
+	/**
+	 * Build synthetic 1-bone skinning data for a rigid (non-skinned) mesh whose node sits
+	 * under an animated ancestor. Every vertex gets weight 1.0 on the resolved joint of
+	 * skins[0]; positions/normals must already be baked into that joint's bind-time model
+	 * space (see the unconditional node-world bake in _createMesh) for the skinning math
+	 * to reproduce the mesh's rigid transform at runtime.
+	 */
+	private _synthesizeRigidSkinningData(
+		vertexCount: number,
+		jointIndex: number,
+		skin: CachedSkinData
+	): MeshSkinningData {
+		const useUint16 = skin.joints.length > 256;
+		const joints: Uint8Array | Uint16Array = useUint16
+			? new Uint16Array(vertexCount * 4)
+			: new Uint8Array(vertexCount * 4);
+		const weights = new Float32Array(vertexCount * 4);
+
+		for (let v = 0; v < vertexCount; v++) {
+			joints[v * 4] = jointIndex;
+			weights[v * 4] = 1;
+		}
+
+		return {
+			joints,
+			weights,
+			skinIndex: 0
+		};
+	}
+
+	/**
 	 * Update all mesh transforms synchronously (fallback mode).
 	 */
 	updateTransformSync(matrix: Float32Array): void {
@@ -1676,8 +1791,7 @@ export class GltfModel {
 	 * Push a new instance transform to all meshes without disturbing animation state.
 	 * Skinned meshes are re-anchored in place (delta transform of their current
 	 * skinned positions) rather than rebuilt from bind-pose data, which froze
-	 * skeletal animation in a T-pose whenever the instance moved. Static meshes
-	 * under animated nodes keep their node world transform, and morphed meshes
+	 * skeletal animation in a T-pose whenever the instance moved. Morphed meshes
 	 * keep their morph deltas. Fully synchronous — the instance renders at its
 	 * new transform the same frame, with no worker round-trip lag.
 	 */
@@ -1685,8 +1799,6 @@ export class GltfModel {
 		for (const mesh of this._meshes) {
 			if (mesh.isSkinned) {
 				mesh.retransformSkinned(matrix);
-			} else if (mesh.parentNode?.hasAnimatedAncestor()) {
-				mesh.updateNodeTransform(matrix);
 			} else if (mesh.hasMorphTargets) {
 				mesh.applyMorphedTransform(matrix);
 			} else {
@@ -1903,24 +2015,6 @@ export class GltfModel {
 	}
 
 	/**
-	 * Update static mesh positions and lighting for non-skinned meshes under animated joints.
-	 * Call this after updateJointNodes(). Skinned meshes are skipped (handled via bone matrices).
-	 * Meshes with animated ancestors also get main-thread lighting (worker pool excludes them).
-	 */
-	updateStaticMeshTransforms(instanceMatrix?: Float32Array, cameraPosition?: Float32Array | null): void {
-		for (const mesh of this._meshes) {
-			if (mesh.isSkinned || !mesh.parentNode) continue;
-			// Baked static meshes already include their node world matrix in
-			// _originalPositions and are handled by the worker static path; re-applying
-			// node world here double-transforms them. Only local-kept meshes (animated
-			// ancestor) are node-transformed per frame.
-			if (!mesh.parentNode.hasAnimatedAncestor()) continue;
-			mesh.updateNodeTransform(instanceMatrix);
-			mesh.applyLighting(null, false, cameraPosition);
-		}
-	}
-
-	/**
 	 * Release all resources.
 	 * Meshes are released directly, textures are released via cache (shared).
 	 * Skinning/animation data is shared via cache and not directly deleted.
@@ -1947,6 +2041,7 @@ export class GltfModel {
 		this._nodeTransforms.clear();
 		this._rootNodes = [];
 		this._nodesByName.clear();
+		this._nodeDefMap.clear();
 
 		// Don't delete textures directly - release via cache
 		this._textures = [];
