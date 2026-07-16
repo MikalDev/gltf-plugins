@@ -34,7 +34,7 @@ export class GltfMesh {
 	// Matrix dirty tracking to avoid redundant GPU uploads
 	private _lastMatrix: Float32Array | null = null;
 	private _tempMatrix: Float32Array | null = null;
-	// Set when updateNodeTransform changes positions/normals so applyLighting knows to re-light
+	// Set when a transform changes positions/normals so applyLighting knows to re-light
 	private _needsLightingUpdate: boolean = false;
 
 	// Lighting dirty tracking
@@ -520,6 +520,9 @@ export class GltfMesh {
 			? new Uint16Array(this._skinningData.joints)
 			: new Uint8Array(this._skinningData.joints);
 		const weightsCopy = new Float32Array(this._skinningData.weights);
+		// Vertex colors / material baseColorFactor, so the worker can blend them into
+		// the lighting result exactly as the main-thread path does.
+		const sourceColorsCopy = this._sourceColors ? new Float32Array(this._sourceColors) : null;
 
 		pool.registerSkinnedMesh(this._id, positionsCopy, normalsCopy, jointsCopy, weightsCopy, (skinnedPositions, skinnedNormals, skinnedColors, anchor) => {
 			// The instance may have moved after this request was queued (event-sheet
@@ -539,23 +542,22 @@ export class GltfMesh {
 				this._applyColors(skinnedColors);
 			}
 			if (target) this.retransformSkinned(target);
-		});
+		}, sourceColorsCopy);
 
 		this._isRegisteredSkinnedWithPool = true;
 	}
 
 	/**
 	 * Register this static mesh with a worker pool for async lighting calculations.
-	 * Only for non-skinned meshes without animated ancestors. Call after create().
+	 * Only for non-skinned meshes. Call after create().
 	 */
 	registerStaticLightingWithPool(pool: TransformWorkerPool): void {
 		if (this._isRegisteredStaticLightingWithPool) return;
 		if (!this._originalNormals || !this._hasNormals) return;
 		if (this.isSkinned) return; // Skinned meshes use queueSkinning with lightConfig
 
-		// Don't use worker lighting for meshes with animated ancestors or morph targets
+		// Don't use worker lighting for meshes with morph targets.
 		// Their positions change each frame, but worker has cached positions
-		if (this._parentNode?.hasAnimatedAncestor()) return;
 		if (this.hasMorphTargets) return;
 
 		this._workerPool = pool;
@@ -564,7 +566,10 @@ export class GltfMesh {
 		// Positions are needed for spotlight calculations
 		const positionsCopy = this._originalPositions ? new Float32Array(this._originalPositions) : null;
 		const normalsCopy = new Float32Array(this._originalNormals);
-		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy);
+		// Vertex colors / material baseColorFactor, so the worker can blend them into
+		// the lighting result exactly as the main-thread path does.
+		const sourceColorsCopy = this._sourceColors ? new Float32Array(this._sourceColors) : null;
+		pool.registerStaticMeshForLighting(this._id, positionsCopy, normalsCopy, sourceColorsCopy);
 
 		this._isRegisteredStaticLightingWithPool = true;
 	}
@@ -739,38 +744,6 @@ export class GltfMesh {
 				return;
 			}
 		}
-	}
-
-	/**
-	 * Update positions based on parent node's world matrix combined with instance transform.
-	 * For static meshes under animated joints, uses morphed positions if available.
-	 */
-	updateNodeTransform(instanceMatrix?: Float32Array): void {
-		if (!this._parentNode || !this._meshData || !this._originalPositions || this.isSkinned) return;
-
-		const nodeWorld = this._parentNode.getWorldMatrix();
-
-		let finalMatrix: Float32Array;
-		if (instanceMatrix) {
-			if (!this._tempMatrix) this._tempMatrix = new Float32Array(16);
-			mat4.multiply(
-				this._tempMatrix as unknown as mat4,
-				instanceMatrix as unknown as mat4,
-				nodeWorld as unknown as mat4
-			);
-			finalMatrix = this._tempMatrix;
-		} else {
-			finalMatrix = nodeWorld;
-		}
-
-		if (!this._isMatrixDirty(finalMatrix) && !this._morphDirty) return;
-
-		if (!this._lastMatrix) this._lastMatrix = new Float32Array(16);
-		this._lastMatrix.set(finalMatrix);
-
-		const srcPos = this.hasMorphTargets ? this.getMorphedPositions()! : this._originalPositions;
-		const srcNorm = this.hasMorphTargets ? this.getMorphedNormals() : this._originalNormals;
-		this._transformToGPU(srcPos, srcNorm, finalMatrix);
 	}
 
 	/**
@@ -970,7 +943,6 @@ export class GltfMesh {
 		const currentVersion = getLightingVersion();
 		const rotationChanged = this._hasRotationChanged(modelMatrix);
 		const cameraChanged = this._hasCameraPositionChanged(cameraPosition);
-		const hasAnimatedAncestor = this._parentNode?.hasAnimatedAncestor() ?? false;
 
 		if (!force && !this._needsLightingUpdate && this._lastLightingVersion === currentVersion && !rotationChanged && !cameraChanged) {
 			return; // Nothing changed, skip
@@ -980,11 +952,8 @@ export class GltfMesh {
 		this._updateLastRotation(modelMatrix);
 		this._updateLastCameraPosition(cameraPosition);
 
-		// For meshes with animated ancestors: use GPU positions (transformed by updateNodeTransform)
-		// For other meshes: use _originalPositions (already baked with node world transform)
-		const positions = hasAnimatedAncestor
-			? new Float32Array(this._meshData.positions)
-			: this._originalPositions;
+		// _originalPositions is always model-space (node-world-baked) for non-skinned meshes.
+		const positions = this._originalPositions;
 
 		calculateMeshLighting(
 			positions,

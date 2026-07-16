@@ -7,55 +7,49 @@
  * Light direction convention: direction vector points TO the light source (standard shader convention).
  */
 
+import {
+	calculateLightingInto,
+	LIGHT_TYPE_SPOT,
+	LIGHT_TYPE_POINT
+} from "./LightingCore.js";
+import type {
+	LightingConfig,
+	LightingConfigLight,
+	LightingConfigSpot,
+	LightType,
+	ColorBlendMode
+} from "./LightingCore.js";
+
+// The lighting equation itself lives in LightingCore.ts so that the main thread
+// and the worker share one implementation. This module owns the global light
+// state and the scripting API on top of it.
+export { LIGHT_TYPE_SPOT, LIGHT_TYPE_POINT };
+export type { LightingConfig, LightType, ColorBlendMode };
+
 // ============================================================================
 // Light Types
 // ============================================================================
 
-export interface DirectionalLight {
+/** A directional light, as stored in global state (adds an id to the core shape). */
+export interface DirectionalLight extends LightingConfigLight {
 	/** Unique identifier */
 	id: number;
-	/** Whether light is enabled */
-	enabled: boolean;
 	/** Light color RGB (0-1) */
 	color: Float32Array;
-	/** Light intensity multiplier */
-	intensity: number;
 	/** Direction TO the light source (normalized) */
 	direction: Float32Array;
-	/** Whether this light contributes specular highlights */
-	specularEnabled: boolean;
 }
 
-/** Positional light mode: cone-restricted spotlight or omnidirectional point light */
-export type LightType = "spot" | "point";
-export const LIGHT_TYPE_SPOT:  LightType = "spot";
-export const LIGHT_TYPE_POINT: LightType = "point";
-
-export interface SpotLight {
+/** A spot/point light, as stored in global state (adds id and shadow to the core shape). */
+export interface SpotLight extends LightingConfigSpot {
 	/** Unique identifier */
 	id: number;
-	/** Whether light is enabled */
-	enabled: boolean;
 	/** Light color RGB (0-1) */
 	color: Float32Array;
-	/** Light intensity multiplier */
-	intensity: number;
 	/** World-space position [x, y, z] */
 	position: Float32Array;
 	/** Direction the spotlight points (normalized, cone axis) */
 	direction: Float32Array;
-	/** Inner cone angle in radians (full intensity within this) */
-	innerConeAngle: number;
-	/** Outer cone angle in radians (zero intensity outside this) */
-	outerConeAngle: number;
-	/** Edge falloff exponent (1.0 = linear, higher = sharper transition) */
-	falloffExponent: number;
-	/** Maximum range (0 = infinite, no distance attenuation) */
-	range: number;
-	/** Whether this light contributes specular highlights */
-	specularEnabled: boolean;
-	/** Light type: "spot" applies cone attenuation, "point" illuminates all directions */
-	type?: LightType;
 	/** Whether physics-based shadow/occlusion raycasting is enabled for this light */
 	shadow?: boolean;
 }
@@ -83,12 +77,6 @@ export interface SpecularConfig {
 	/** Debug mode: output pure blue for any specular contribution */
 	debugBlue?: boolean;
 }
-
-// ============================================================================
-// Color Blend Mode for Vertex Colors
-// ============================================================================
-
-export type ColorBlendMode = 'none' | 'multiply' | 'screen' | 'overlay' | 'add';
 
 declare global {
 	var gltfLights: DirectionalLight[];
@@ -132,12 +120,6 @@ if (!globalThis.gltfSpecular) {
 if (!globalThis.gltfColorBlendMode) {
 	globalThis.gltfColorBlendMode = 'overlay';
 }
-
-// ============================================================================
-// Pre-allocated temp buffers (avoid allocations in hot path)
-// ============================================================================
-
-const _tempColor = new Float32Array(3);
 
 // ============================================================================
 // Dirty Tracking
@@ -802,6 +784,40 @@ export function hasEnabledSpotLights(): boolean {
  *                    Pass null/undefined to skip transformation (already in world space).
  *                    Format: 16-element column-major mat4 (gl-matrix style)
  */
+/**
+ * Build a LightingConfig snapshot from the current global light state.
+ *
+ * This is the one place that reads globalThis for the purpose of running the
+ * lighting equation. The worker is handed the same shape as a structured-cloned
+ * snapshot, so both threads feed LightingCore identical input.
+ */
+export function getGlobalLightingConfig(cameraPosition?: Float32Array | null): LightingConfig {
+	return {
+		ambient: globalThis.gltfAmbientLight,
+		lights: globalThis.gltfLights,
+		spotLights: globalThis.gltfSpotLights,
+		hemisphere: globalThis.gltfHemisphereLight,
+		specular: globalThis.gltfSpecular,
+		cameraPosition: cameraPosition ?? null,
+		colorBlendMode: globalThis.gltfColorBlendMode
+	};
+}
+
+/**
+ * Calculate vertex lighting for a mesh from the current global light state.
+ *
+ * Thin wrapper over LightingCore.calculateLightingInto — the equation itself is
+ * shared with the worker. See LightingCore.ts.
+ *
+ * @param positions Vertex positions (3 floats per vertex, model space) - required for spotlights
+ * @param normals Vertex normals (3 floats per vertex, model space, normalized)
+ * @param outColors Output vertex colors (4 floats per vertex: r, g, b, a)
+ * @param vertexCount Number of vertices
+ * @param modelMatrix Optional 4x4 column-major model matrix taking positions/normals
+ *                    to world space. Pass null/undefined if already world space.
+ * @param cameraPosition Camera world position, required for specular
+ * @param sourceColors Optional vertex colors / baseColorFactor to blend with the result
+ */
 export function calculateMeshLighting(
 	positions: Float32Array | null,
 	normals: Float32Array,
@@ -811,297 +827,13 @@ export function calculateMeshLighting(
 	cameraPosition?: Float32Array | null,
 	sourceColors?: Float32Array | null
 ): void {
-	const ambient = globalThis.gltfAmbientLight;
-	const lights = globalThis.gltfLights;
-	const spotLights = globalThis.gltfSpotLights;
-	const specular = globalThis.gltfSpecular;
-
-	// Extract matrix components if provided (4x4 column-major)
-	const hasMatrix = modelMatrix && modelMatrix.length >= 16;
-
-	// Rotation/scale part (upper-left 3x3)
-	let m00 = 1, m01 = 0, m02 = 0;
-	let m10 = 0, m11 = 1, m12 = 0;
-	let m20 = 0, m21 = 0, m22 = 1;
-	// Translation part
-	let tx = 0, ty = 0, tz = 0;
-
-	if (hasMatrix) {
-		// 4x4 matrix (column-major like gl-matrix)
-		m00 = modelMatrix[0]; m01 = modelMatrix[4]; m02 = modelMatrix[8];
-		m10 = modelMatrix[1]; m11 = modelMatrix[5]; m12 = modelMatrix[9];
-		m20 = modelMatrix[2]; m21 = modelMatrix[6]; m22 = modelMatrix[10];
-		tx = modelMatrix[12]; ty = modelMatrix[13]; tz = modelMatrix[14];
-	}
-
-	// Check if we have spotlights to process
-	const hasSpotLights = spotLights.length > 0 && positions !== null;
-
-	// Check if we can do specular (need camera position and vertex positions)
-	const canDoSpecular = cameraPosition && cameraPosition.length >= 3 && positions !== null && specular.intensity > 0;
-
-	for (let i = 0; i < vertexCount; i++) {
-		const off3 = i * 3;
-		const off4 = i * 4;
-
-		// Start with ambient
-		let r = ambient[0];
-		let g = ambient[1];
-		let b = ambient[2];
-
-		// Normal components (model space)
-		let nx = normals[off3];
-		let ny = normals[off3 + 1];
-		let nz = normals[off3 + 2];
-
-		// Transform normal to world space if matrix provided
-		if (hasMatrix) {
-			const wnx = m00 * nx + m01 * ny + m02 * nz;
-			const wny = m10 * nx + m11 * ny + m12 * nz;
-			const wnz = m20 * nx + m21 * ny + m22 * nz;
-			// Renormalize in case of non-uniform scale
-			const len = Math.sqrt(wnx * wnx + wny * wny + wnz * wnz);
-			if (len > 0.0001) {
-				nx = wnx / len;
-				ny = wny / len;
-				nz = wnz / len;
-			}
-		}
-
-		// Hemisphere light contribution (blend sky/ground based on normal.z for Z-up)
-		const hemisphere = globalThis.gltfHemisphereLight;
-		if (hemisphere.enabled) {
-			// Blend factor: normal.z from [-1, 1] maps to [0, 1]
-			const blend = (nz + 1) * 0.5;
-			const invBlend = 1 - blend;
-			const hemiIntensity = hemisphere.intensity;
-			r += (hemisphere.groundColor[0] * invBlend + hemisphere.skyColor[0] * blend) * hemiIntensity;
-			g += (hemisphere.groundColor[1] * invBlend + hemisphere.skyColor[1] * blend) * hemiIntensity;
-			b += (hemisphere.groundColor[2] * invBlend + hemisphere.skyColor[2] * blend) * hemiIntensity;
-		}
-
-		// Get vertex world position (needed for spotlights and specular)
-		let px = 0, py = 0, pz = 0;
-		let viewX = 0, viewY = 0, viewZ = 0;
-		const needsWorldPos = hasSpotLights || canDoSpecular;
-
-		if (needsWorldPos && positions) {
-			px = positions[off3];
-			py = positions[off3 + 1];
-			pz = positions[off3 + 2];
-
-			// Transform position to world space if matrix provided
-			if (hasMatrix) {
-				const wpx = m00 * px + m01 * py + m02 * pz + tx;
-				const wpy = m10 * px + m11 * py + m12 * pz + ty;
-				const wpz = m20 * px + m21 * py + m22 * pz + tz;
-				px = wpx;
-				py = wpy;
-				pz = wpz;
-			}
-
-			// Calculate view direction for specular (vertex to camera)
-			if (canDoSpecular) {
-				const vx = cameraPosition![0] - px;
-				const vy = cameraPosition![1] - py;
-				const vz = cameraPosition![2] - pz;
-				const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
-				if (vLen > 0.0001) {
-					viewX = vx / vLen;
-					viewY = vy / vLen;
-					viewZ = vz / vLen;
-				}
-			}
-		}
-
-		// Accumulate contribution from all enabled directional lights
-		for (let j = 0; j < lights.length; j++) {
-			const light = lights[j];
-			if (!light.enabled) continue;
-
-			// Light direction (TO light, already normalized)
-			const lightDirX = light.direction[0];
-			const lightDirY = light.direction[1];
-			const lightDirZ = light.direction[2];
-
-			// N dot L (both normalized, direction is TO light)
-			const NdotL = nx * lightDirX + ny * lightDirY + nz * lightDirZ;
-
-			if (NdotL > 0) {
-				// Diffuse contribution
-				const contrib = NdotL * light.intensity;
-				r += light.color[0] * contrib;
-				g += light.color[1] * contrib;
-				b += light.color[2] * contrib;
-
-				// Specular contribution (Blinn-Phong)
-				if (canDoSpecular && light.specularEnabled) {
-					// Half vector: normalize(lightDir + viewDir)
-					const hx = lightDirX + viewX;
-					const hy = lightDirY + viewY;
-					const hz = lightDirZ + viewZ;
-					const hLen = Math.sqrt(hx * hx + hy * hy + hz * hz);
-					if (hLen > 0.0001) {
-						const halfX = hx / hLen;
-						const halfY = hy / hLen;
-						const halfZ = hz / hLen;
-
-						const NdotH = nx * halfX + ny * halfY + nz * halfZ;
-
-						// Debug mode: show blue regardless of NdotH sign (helps diagnose inversions)
-						if (specular.debugBlue) {
-							if (Math.abs(NdotH) > 0.01) {
-								b += 1.0;
-							}
-						} else {
-							// Clamp to avoid NaN from negative values with fractional exponents
-							const spec = Math.pow(Math.max(0, NdotH), specular.shininess) * specular.intensity * light.intensity;
-							r += light.color[0] * spec;
-							g += light.color[1] * spec;
-							b += light.color[2] * spec;
-						}
-					}
-				}
-			}
-		}
-
-		// Accumulate contribution from all enabled spotlights
-		if (hasSpotLights) {
-
-			for (let j = 0; j < spotLights.length; j++) {
-				const spot = spotLights[j];
-				if (!spot.enabled) continue;
-
-				// Vector from light to vertex
-				const dx = px - spot.position[0];
-				const dy = py - spot.position[1];
-				const dz = pz - spot.position[2];
-				const distSq = dx * dx + dy * dy + dz * dz;
-				const dist = Math.sqrt(distSq);
-
-				if (dist < 0.0001) continue; // Avoid division by zero
-
-				// Normalize direction from light to vertex
-				const invDist = 1 / dist;
-				const toVertX = dx * invDist;
-				const toVertY = dy * invDist;
-				const toVertZ = dz * invDist;
-
-				// Angular falloff (skipped for point lights)
-				let angularAtten = 1;
-				if (spot.type !== LIGHT_TYPE_POINT) {
-					// spot.direction points in the direction the light shines
-					const cosAngle = spot.direction[0] * toVertX + spot.direction[1] * toVertY + spot.direction[2] * toVertZ;
-
-					// Precompute cone angle cosines
-					const innerCos = Math.cos(spot.innerConeAngle);
-					const outerCos = Math.cos(spot.outerConeAngle);
-
-					// Outside outer cone - no contribution
-					if (cosAngle <= outerCos) continue;
-
-					// Calculate angular attenuation
-					if (cosAngle >= innerCos) {
-						// Inside inner cone - full intensity
-						angularAtten = 1;
-					} else {
-						// In penumbra - smooth falloff
-						const t = (cosAngle - outerCos) / (innerCos - outerCos);
-						angularAtten = Math.pow(t, spot.falloffExponent);
-					}
-				}
-
-				// Distance attenuation
-				let distAtten = 1;
-				if (spot.range > 0) {
-					// Smooth falloff to zero at range
-					if (dist >= spot.range) continue;
-					const normalizedDist = dist / spot.range;
-					const rangeAtten = 1 - normalizedDist * normalizedDist;
-					distAtten = rangeAtten * rangeAtten;
-				} else {
-					// Inverse square falloff (with offset to avoid infinity at 0)
-					distAtten = 1 / (1 + distSq);
-				}
-
-				// N dot L: direction FROM vertex TO light is negative of toVert
-				const lightDirX = -toVertX;
-				const lightDirY = -toVertY;
-				const lightDirZ = -toVertZ;
-				const NdotL = nx * lightDirX + ny * lightDirY + nz * lightDirZ;
-
-				if (NdotL > 0) {
-					// Diffuse contribution
-					const contrib = NdotL * spot.intensity * angularAtten * distAtten;
-					r += spot.color[0] * contrib;
-					g += spot.color[1] * contrib;
-					b += spot.color[2] * contrib;
-
-					// Specular contribution (Blinn-Phong)
-					if (canDoSpecular && spot.specularEnabled) {
-						// Half vector: normalize(lightDir + viewDir)
-						const hx = lightDirX + viewX;
-						const hy = lightDirY + viewY;
-						const hz = lightDirZ + viewZ;
-						const hLen = Math.sqrt(hx * hx + hy * hy + hz * hz);
-						if (hLen > 0.0001) {
-							const halfX = hx / hLen;
-							const halfY = hy / hLen;
-							const halfZ = hz / hLen;
-
-							const NdotH = nx * halfX + ny * halfY + nz * halfZ;
-
-							// Debug mode: show blue regardless of NdotH sign
-							if (specular.debugBlue) {
-								if (Math.abs(NdotH) > 0.01) {
-									b += 1.0;
-								}
-							} else {
-								// Clamp to avoid NaN from negative values with fractional exponents
-								const spec = Math.pow(Math.max(0, NdotH), specular.shininess) * specular.intensity * spot.intensity * angularAtten * distAtten;
-								r += spot.color[0] * spec;
-								g += spot.color[1] * spec;
-								b += spot.color[2] * spec;
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Apply blend with source vertex colors
-		if (sourceColors) {
-			const srcR = sourceColors[off4];
-			const srcG = sourceColors[off4 + 1];
-			const srcB = sourceColors[off4 + 2];
-
-			switch (globalThis.gltfColorBlendMode) {
-				case 'multiply':
-					r *= srcR; g *= srcG; b *= srcB;
-					break;
-				case 'screen':
-					r = 1 - (1 - r) * (1 - srcR);
-					g = 1 - (1 - g) * (1 - srcG);
-					b = 1 - (1 - b) * (1 - srcB);
-					break;
-				case 'overlay':
-					r = r < 0.5 ? 2 * r * srcR : 1 - 2 * (1 - r) * (1 - srcR);
-					g = g < 0.5 ? 2 * g * srcG : 1 - 2 * (1 - g) * (1 - srcG);
-					b = b < 0.5 ? 2 * b * srcB : 1 - 2 * (1 - b) * (1 - srcB);
-					break;
-				case 'add':
-					r += srcR; g += srcG; b += srcB;
-					break;
-				// 'none': no blending, lighting only
-			}
-		}
-
-		// Write output (clamped, alpha = 1)
-		outColors[off4] = r > 2 ? 2 : r;
-		outColors[off4 + 1] = g > 2 ? 2 : g;
-		outColors[off4 + 2] = b > 2 ? 2 : b;
-		outColors[off4 + 3] = 1;
-	}
+	calculateLightingInto(
+		positions, normals, outColors,
+		0, 0, 0,
+		vertexCount,
+		modelMatrix, sourceColors,
+		getGlobalLightingConfig(cameraPosition)
+	);
 }
 
 /**

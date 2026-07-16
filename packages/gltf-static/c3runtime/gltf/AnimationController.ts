@@ -795,6 +795,7 @@ export class AnimationController {
 	private _cacheActiveChannels(anim: CachedAnimationData): void {
 		this._activeChannels = [];
 		this._morphWeightStates = [];
+		let droppedTransformChannels = 0;
 
 		for (const channel of anim.channels) {
 			const sampler = anim.samplers[channel.samplerIndex];
@@ -817,11 +818,17 @@ export class AnimationController {
 
 			// Skip non-joint channels for transform paths
 			if (channel.targetJointIndex < 0 || channel.targetJointIndex >= this._skinData.joints.length) {
+				droppedTransformChannels++;
 				continue;
 			}
 			this._activeChannels.push({ channel, sampler });
 		}
 		debugLog(`Cached ${this._activeChannels.length} active channels (${this._morphWeightStates.length} morph weight channels)`);
+		if (droppedTransformChannels > 0) {
+			// Rigid node animation (TRS channels targeting a non-joint node) is not
+			// supported — the channel is evaluated nowhere, so the node never moves.
+			debugLog(`Dropped ${droppedTransformChannels} non-joint transform channel(s): rigid node animation is unsupported`);
+		}
 	}
 
 	/**

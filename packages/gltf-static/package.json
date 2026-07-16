@@ -1,32 +1,33 @@
 {
-  "name": "gltfstatic",
-  "version": "1.31.1",
-  "description": "glTF Static - Construct 3 plugin for loading static glTF 3D models",
-  "main": "c3runtime/main.js",
-  "scripts": {
-    "build": "node build.js && tsc",
-    "build:bundle": "node build.js",
-    "build:ts": "tsc",
-    "package": "node package.js",
-    "watch": "tsc --watch",
-    "prepare": "husky || true"
-  },
-  "keywords": [
-    "construct3",
-    "gltf",
-    "3d",
-    "plugin"
-  ],
-  "author": "Mikal",
-  "license": "MIT",
-  "dependencies": {
-    "@gltf-plugins/shared-types": "*",
-    "@gltf-transform/core": "^4.3.0",
-    "gl-matrix": "^3.4.4"
-  },
-  "devDependencies": {
-    "archiver": "^7.0.1",
-    "esbuild": "^0.27.2",
-    "husky": "^9.1.7"
-  }
+	"name": "gltfstatic",
+	"version": "1.31.2",
+	"description": "glTF Static - Construct 3 plugin for loading static glTF 3D models",
+	"main": "c3runtime/main.js",
+	"scripts": {
+		"test": "node tests/test-transforms.js && node tests/test-node-transform.js && node tests/test-one-bone-skinning.js && node tests/test-rigid-bake-integration.js && node tests/test-worker-pool-race.js && node tests/test-lighting-equivalence.js",
+		"build": "node build.js && tsc",
+		"build:bundle": "node build.js",
+		"build:ts": "tsc",
+		"package": "node package.js",
+		"watch": "tsc --watch",
+		"prepare": "husky || true"
+	},
+	"keywords": [
+		"construct3",
+		"gltf",
+		"3d",
+		"plugin"
+	],
+	"author": "Mikal",
+	"license": "MIT",
+	"dependencies": {
+		"@gltf-plugins/shared-types": "*",
+		"@gltf-transform/core": "^4.3.0",
+		"gl-matrix": "^3.4.4"
+	},
+	"devDependencies": {
+		"archiver": "^7.0.1",
+		"esbuild": "^0.27.2",
+		"husky": "^9.1.7"
+	}
 }

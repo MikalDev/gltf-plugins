@@ -581,7 +581,6 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 			if (this._skinnedMeshIndices.length > 0)
 			{
 				this._model.updateJointNodes(this._animationController);
-				this._model.updateStaticMeshTransforms(this._instanceMatrix, this._getCameraPosition());
 				this._updateSkinnedMeshes();
 			}
 
@@ -709,6 +708,10 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 		// after flush(), but the source buffers could change between now and then
 		const config: WorkerLightConfig = {
 			ambient: new Float32Array(Lighting.getAmbientLight()),
+			// How vertex colors / baseColorFactor blend with the lighting result.
+			// Must be sent: the worker has no access to the global light state, and
+			// omitting this would silently skip the blend and wash the mesh out.
+			colorBlendMode: Lighting.getColorBlendMode(),
 			lights: lights.map(l => ({
 				enabled: l.enabled,
 				color: new Float32Array(l.color),
