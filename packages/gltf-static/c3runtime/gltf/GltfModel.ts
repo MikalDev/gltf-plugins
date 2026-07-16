@@ -2,7 +2,6 @@ import { WebIO, Node as GltfNodeDef, Texture, TextureInfo, Primitive, Root, Skin
 import { mat4, quat, vec3 } from "gl-matrix";
 import { GltfMesh } from "./GltfMesh.js";
 import { GltfNode } from "./GltfNode.js";
-import type { AnimationController } from "./AnimationController.js";
 import { TransformWorkerPool, SharedWorkerPool, WorkerLightConfig } from "./TransformWorkerPool.js";
 import {
 	modelCache,
@@ -1998,21 +1997,14 @@ export class GltfModel {
 		return this._nodeTransforms.has(name);
 	}
 
-	/**
-	 * Sync joint nodes with animation controller's computed local transforms.
-	 * Call this after AnimationController.update() to update node hierarchy.
-	 * @param animController The animation controller with updated joint transforms
-	 */
-	updateJointNodes(animController: AnimationController): void {
-		for (const node of this._nodesByName.values()) {
-			if (node.jointIndex >= 0) {
-				const localTransform = animController.getJointLocalTransform(node.jointIndex);
-				if (localTransform) {
-					node.setLocalMatrix(localTransform);
-				}
-			}
-		}
-	}
+	// updateJointNodes() used to push each frame's joint transforms back into the
+	// GltfNode hierarchy. Nothing reads that hierarchy at runtime any more — the only
+	// getWorldMatrix() callers are load-time — so it was pure waste: an allocation per
+	// joint per frame plus a recursive subtree invalidate per joint, feeding nobody.
+	//
+	// Note getNodeWorldMatrix() reads _nodeTransforms, which is a LOAD-TIME snapshot and
+	// has never tracked animation. If that API is ever made live, this sync is what would
+	// need to come back (alongside a fix to _nodeTransforms itself).
 
 	/**
 	 * Release all resources.

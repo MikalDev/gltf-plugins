@@ -577,10 +577,8 @@ C3.Plugins.GltfStatic.Instance = class GltfStaticInstance extends ISDKWorldInsta
 
 		if (this._animationController && this._model)
 		{
-			// Update bone hierarchy if we have skinned meshes
 			if (this._skinnedMeshIndices.length > 0)
 			{
-				this._model.updateJointNodes(this._animationController);
 				this._updateSkinnedMeshes();
 			}
 

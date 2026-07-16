@@ -108,10 +108,14 @@ export class AnimationController {
 	private readonly _boneMatrices: Float32Array;        // 16 floats per joint, flattened
 	private readonly _jointComputed: Uint8Array;         // Track which joints have been computed this frame
 
-	// Pre-allocated skinned position output buffers (one per mesh)
-	private readonly _skinnedPositions: Float32Array[];
-	// Pre-allocated skinned normal output buffers (one per mesh, if mesh has normals)
-	private readonly _skinnedNormals: (Float32Array | null)[];
+	// Bind pose decomposed to TRS once at construction (it never changes)
+	private readonly _bindTransforms: JointTransform[];
+
+	// Skinned output buffers (one per mesh). Allocated lazily by _ensureSkinningBuffers()
+	// because worker skinning — the normal path — never touches them, and they are large
+	// (3 floats per vertex per mesh).
+	private _skinnedPositions: Float32Array[] | null = null;
+	private _skinnedNormals: (Float32Array | null)[] | null = null;
 
 	// Cached active channels (populated on play() to avoid lookup each frame)
 	private _activeChannels: ActiveChannel[] = [];
@@ -161,35 +165,32 @@ export class AnimationController {
 			};
 		}
 
+		// Decompose the bind pose ONCE. localBindTransform never changes, so doing this
+		// per frame in _resetToBindPose was recomputing a constant — and mat4.getRotation
+		// (matrix->quaternion) plus getScaling cost several sqrt per joint per frame.
+		this._bindTransforms = new Array(jointCount);
+		for (let i = 0; i < jointCount; i++) {
+			const bindMat = this._skinData.joints[i].localBindTransform;
+			const t: JointTransform = {
+				translation: new Float32Array(3),
+				rotation: new Float32Array(4),
+				scale: new Float32Array(3)
+			};
+			mat4.getTranslation(t.translation as unknown as vec3, bindMat as unknown as mat4);
+			mat4.getRotation(t.rotation as unknown as quat, bindMat as unknown as mat4);
+			mat4.getScaling(t.scale as unknown as vec3, bindMat as unknown as mat4);
+			this._bindTransforms[i] = t;
+		}
+
 		// Pre-allocate joint world matrices and bone matrices
 		this._jointWorldMatrices = new Float32Array(jointCount * 16);
 		this._boneMatrices = new Float32Array(jointCount * 16);
 		this._jointComputed = new Uint8Array(jointCount);
 
-		// Pre-allocate skinned position output buffers
-		this._skinnedPositions = new Array(options.meshes.length);
-		this._skinnedNormals = new Array(options.meshes.length);
-		let totalVertices = 0;
-		for (let i = 0; i < options.meshes.length; i++) {
-			const vertexCount = options.meshes[i].originalPositions.length;
-			this._skinnedPositions[i] = new Float32Array(vertexCount);
-			// Also allocate normal buffers if mesh has normals
-			if (options.meshes[i].originalNormals) {
-				this._skinnedNormals[i] = new Float32Array(vertexCount);
-			} else {
-				this._skinnedNormals[i] = null;
-			}
-			totalVertices += vertexCount / 3;
-		}
-
-		// Warn about high vertex counts (review suggestion)
-		if (totalVertices > MAX_CPU_SKINNING_VERTICES && !CPU_WARNING_LOGGED.has(this)) {
-			console.warn(
-				`${LOG_PREFIX} CPU skinning ${totalVertices} vertices (>${MAX_CPU_SKINNING_VERTICES}). ` +
-				`Consider using worker-based skinning for better performance.`
-			);
-			CPU_WARNING_LOGGED.add(this);
-		}
+		// Skinned output buffers are NOT allocated here — see _ensureSkinningBuffers().
+		// The vertex-count warning lives there too: at construction useWorkerSkinning is
+		// still false (the instance sets it immediately afterwards), so warning here fired
+		// on every model regardless of whether CPU skinning would ever run.
 
 		// Pre-allocate temp buffers
 		this._tempVec3A = new Float32Array(3);
@@ -564,10 +565,11 @@ export class AnimationController {
 	 * @returns Skinned positions (Float32Array, 3 floats per vertex)
 	 */
 	getSkinnedPositions(meshIndex: number): Float32Array {
-		if (meshIndex < 0 || meshIndex >= this._skinnedPositions.length) {
+		if (meshIndex < 0 || meshIndex >= this._meshes.length) {
 			throw new Error(`Invalid mesh index: ${meshIndex}`);
 		}
-		return this._skinnedPositions[meshIndex];
+		this._ensureSkinningBuffers();
+		return this._skinnedPositions![meshIndex];
 	}
 
 	/**
@@ -576,10 +578,11 @@ export class AnimationController {
 	 * @returns Skinned normals (Float32Array, 3 floats per vertex) or null if no normals
 	 */
 	getSkinnedNormals(meshIndex: number): Float32Array | null {
-		if (meshIndex < 0 || meshIndex >= this._skinnedNormals.length) {
+		if (meshIndex < 0 || meshIndex >= this._meshes.length) {
 			throw new Error(`Invalid mesh index: ${meshIndex}`);
 		}
-		return this._skinnedNormals[meshIndex];
+		this._ensureSkinningBuffers();
+		return this._skinnedNormals![meshIndex];
 	}
 
 	/**
@@ -835,17 +838,14 @@ export class AnimationController {
 	 * Reset all joints to their bind pose transforms.
 	 */
 	private _resetToBindPose(): void {
-		const joints = this._skinData.joints;
-		for (let i = 0; i < joints.length; i++) {
-			const joint = joints[i];
+		// Copy the pre-decomposed bind TRS (see constructor). The bind pose is constant,
+		// so this is a plain memcpy rather than a per-frame matrix decomposition.
+		for (let i = 0; i < this._bindTransforms.length; i++) {
+			const bind = this._bindTransforms[i];
 			const transform = this._jointTransforms[i];
-			const bindMat = joint.localBindTransform;
-
-			// Decompose bind matrix into TRS
-			// gl-matrix mat4.getTranslation, getRotation (as quat), getScaling
-			mat4.getTranslation(transform.translation as vec3, bindMat as mat4);
-			mat4.getRotation(transform.rotation as quat, bindMat as mat4);
-			mat4.getScaling(transform.scale as vec3, bindMat as mat4);
+			transform.translation.set(bind.translation);
+			transform.rotation.set(bind.rotation);
+			transform.scale.set(bind.scale);
 		}
 
 		// Reset morph weights to zero
@@ -1164,9 +1164,45 @@ export class AnimationController {
 	// ========================================================================
 
 	/**
+	 * Allocate the CPU skinning output buffers on first use.
+	 *
+	 * Worker skinning is the normal path and never reads these, so allocating them in the
+	 * constructor wasted a Float32Array per mesh (hundreds of KB on a dense model) that
+	 * nothing ever touched. Idempotent — safe to call on every skinning pass.
+	 */
+	private _ensureSkinningBuffers(): void {
+		if (this._skinnedPositions) return;
+
+		const positions: Float32Array[] = new Array(this._meshes.length);
+		const normals: (Float32Array | null)[] = new Array(this._meshes.length);
+		let totalVertices = 0;
+
+		for (let i = 0; i < this._meshes.length; i++) {
+			const floatCount = this._meshes[i].originalPositions.length;
+			positions[i] = new Float32Array(floatCount);
+			normals[i] = this._meshes[i].originalNormals ? new Float32Array(floatCount) : null;
+			totalVertices += floatCount / 3;
+		}
+
+		this._skinnedPositions = positions;
+		this._skinnedNormals = normals;
+
+		// Reaching here means CPU skinning is genuinely about to run, so the warning is
+		// now actionable rather than firing on every model at construction time.
+		if (totalVertices > MAX_CPU_SKINNING_VERTICES && !CPU_WARNING_LOGGED.has(this)) {
+			console.warn(
+				`${LOG_PREFIX} CPU skinning ${totalVertices} vertices (>${MAX_CPU_SKINNING_VERTICES}). ` +
+				`Consider using worker-based skinning for better performance.`
+			);
+			CPU_WARNING_LOGGED.add(this);
+		}
+	}
+
+	/**
 	 * Apply skinning to all meshes.
 	 */
 	private _applyAllSkinning(): void {
+		this._ensureSkinningBuffers();
 		for (let i = 0; i < this._meshes.length; i++) {
 			this._applySkinning(i);
 		}
@@ -1178,12 +1214,15 @@ export class AnimationController {
 	 * Also transforms normals if available.
 	 */
 	private _applySkinning(meshIndex: number): void {
+		// Callers go through _applyAllSkinning, which allocates the buffers first.
+		this._ensureSkinningBuffers();
+
 		const meshData = this._meshes[meshIndex];
 		const positions = meshData.originalPositions;
 		const normals = meshData.originalNormals;
 		const skinning = meshData.skinningData;
-		const output = this._skinnedPositions[meshIndex];
-		const normalOutput = this._skinnedNormals[meshIndex];
+		const output = this._skinnedPositions![meshIndex];
+		const normalOutput = this._skinnedNormals![meshIndex];
 
 		const vertexCount = positions.length / 3;
 		const joints = skinning.joints;
